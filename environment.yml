@@ -1,4 +1,4 @@
-name: patho-gui
+name: iostracker
 channels:
   - conda-forge
   - bioconda
