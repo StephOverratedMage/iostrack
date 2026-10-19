@@ -14,15 +14,15 @@ Iostrack is open source and free to use. Includes a custom Dark and Light mode d
 
 ---
 ## 📋 Contents
-- [Features](#features)
-- [GUI Environment](#gui-environment)
-- [Pipeline Architecture](#pipeline-architecture)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Example Run](#example-run)
-- [Results](#results)
-- [Roadmap](#roadmap)
-- [License](#license)
+- [Features](#🛠️-features)
+- [GUI Environment](#🖼️-gui-environment)
+- [Pipeline Architecture](#🏗️-pipeline-architecture)
+- [Requirements](#✅-requirements)
+- [Installation](#📥-installation)
+- [Example Run](#💡-example-run)
+- [Results](#📊-results)
+- [Roadmap](#🔜-roadmap)
+- [License](#📝-license)
 ---
 ## 🛠️ Features
 
