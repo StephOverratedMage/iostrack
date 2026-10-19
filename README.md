@@ -46,7 +46,7 @@ Iostrack is open source and free to use. It includes custom Dark and Light theme
 
 * Allows for querying the NCBI or ENA databases to fetch DNA sequences based on search terms (Organism, title terms) or accession numbers.
 * Aligns all results to a reference genome specified by the user.
-* Filters results by minimum length (bp), maximum N content percentage, maximum divergence from the reference and setting a maximum number of results to be displayed and analyzed.
+* Filters results by minimum length (bp), maximum N content percentage, maximum divergence from the reference and limits the maximum number of sequences downloaded, displayed, and analyzed.
 * Displays analytical matrices detailing total mutations per accession or per primary segment based on the Minimap2 alignments. Mutation types (transition/transversion) as well as their ratio are also included.
 * Visualizes total SNPs and GC content per accession.
 * Produces a heatmap of mutations across the reference genome, with the option to overlay coding region limits over the heatmap.
@@ -143,7 +143,7 @@ Iostrack organizes its outputs hierarchically inside the `results/` directory. B
 | **`results/align/alignments.paf`** | Alignment | Raw Pairwise Alignment Format (`.paf`) containing high-resolution mapping coordinates and `cs:Z:` tags. |
 | **`results/summary/split_alignments.csv`** | Structural | Detailed coordinate breakdown of non-secondary mapped segments (including split/supplementary alignments). |
 | **`results/summary/gene_features.csv`** | Annotation | Structured table of reference viral genes (`Gene`, `Product`, `Start`, `End`, `Strand`) for CDS track overlays. |
-| **`results/summary/sample_report.csv`** | Summary Report | Aggregated cohort report combining mutational burdens, $Ti/Tv$ ratios, and $dN/dS$ missense/synonymous metrics. |
+| **`results/summary/sample_report.csv`** | Summary Report | Aggregated cohort report combining mutational burdens, Ti/Tv ratios, and missense/synonymous mutation-count proxy metrics. |
 | **`results/summary/snp_coordinates.csv`** | Variant Loci | Granular locus-by-locus table of every SNP, tracking base changes, mutational classes, and HGVS protein changes. |
 | **`results/summary/variants.vcf`** | Interoperable | **Multi-Sample VCF v4.2** file with `NS`, `AF`, `GENE`, `CONSEQ`, `AA`, and binary sample genotypes (`GT`). |
 
