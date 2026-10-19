@@ -7,7 +7,7 @@
 ![Tests](https://img.shields.io/badge/Tests-Pytest-0A9EDC?logo=pytest)
 
 **Iostrack** is an end-to-end bioinformatics workflow and interactive surveillance GUI for fetching, quality-filtering, aligning, and annotating viral isolate genomes. "Ios" comes from the Greek word meaning "virus".
-It supports **NCBI Entrez** and the **European Nucleotide Archive (ENA)** data sources.
+It supports **NCBI Entrez** and the **European Nucleotide Archive (ENA)** as data sources.
 
 Built with **Snakemake** for reproducible workflow orchestration and **Streamlit + Plotly** for real-time visual analytics, Iostrack transforms raw unaligned FASTA sequences into actionable epidemiological metrics—including **GenBank CDS amino acid consequences**, **$Ti/Tv$ mutational signatures**, **structural split-alignment coordinates**, **pairwise SNP distance matrices**, and **standards-compliant multi-sample VCFv4.2 exports**.
 
@@ -15,28 +15,30 @@ Iostrack is open source and free to use. Includes a custom Dark and Light mode d
 
 ---
 ## 📋 Contents
-- [Definitions](#definitions)
-- [Features](#features)
-- [GUI Environment](#gui-environment)
-- [Pipeline Architecture](#pipeline-architecture)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Example Run](#example-run)
-- [Results](#results)
-- [Roadmap](#roadmap)
-- [License](#license)
+- [Definitions](#-definitions)
+- [Features](#️-features)
+- [GUI Environment](#️-gui-environment)
+- [Pipeline Architecture](#️-pipeline-architecture)
+- [Requirements](#-requirements)
+- [Installation](#-installation)
+- [Example Run](#-example-run)
+- [Results](#-results)
+- [Roadmap](#-roadmap)
+- [License](#-license)
+
 ---
 ## 🔎 Definitions
-####
+
 * N content / N%: Ambiguous base call percentage.
 * Ti/Tv: The ratio of transitions divided by transversions (Transitions are A to G and vice versa, C to T and vice versa. Transversions are A/G to C/T and vice versa)
 * CDS: Coding DNA Sequence. A segment of DNA that is transcribed and eventually translated into a protein molecule.
-* dN/dS: The ratio of non-synonymous mutations divided by synonymous mutations. High ratio typically indicates faster evolution.
-* PAF: Population Attributable Fraction.
+* Missense / Synonymous Ratio (dN/dS proxy): The ratio of amino-acid-altering (non-synonymous) SNPs to silent (synonymous) SNPs across coding regions.
+* PAF: Pairwise Alignment Format, a tab-delimited format for storing sequence alignment information.
 * HGVS: Human Genome Variation Society nomenclature used for describing genetic variants.
 * VCF: Variant Call Format, a standard text file format for storing DNA sequence variations.
 * AF: Info field for VCF files, displaying allele frequency for each alternative allele.
 * GT: Genotype
+
 ---
 ## 🛠️ Features
 
@@ -84,6 +86,7 @@ flowchart LR
     PARSE --> OUT3["✂️ split_alignments.csv\n(Structural Segments)"]
     PARSE --> OUT4["📄 variants.vcf\n(Multi-Sample VCFv4.2)"]
 ```
+
 ---
 ## ✅ Requirements
 
@@ -120,7 +123,8 @@ streamlit run app.py
 6. Set quality-control thresholds.
 7. Click **🚀 Run Pipeline**.
 
-### NOTE: When querying NCBI, a valid e-mail address is required for their API.
+NOTE: When querying NCBI, a valid e-mail address is required for their API.
+
 ---
 ## 📊 Results
 
@@ -141,11 +145,12 @@ Iostrack organizes its outputs hierarchically inside the `results/` directory. B
 | **`results/summary/snp_coordinates.csv`** | Variant Loci | Granular locus-by-locus table of every SNP, tracking base changes, mutational classes, and HGVS protein changes. |
 | **`results/summary/variants.vcf`** | Interoperable | **Multi-Sample VCF v4.2** file with `NS`, `AF`, `GENE`, `CONSEQ`, `AA`, and binary sample genotypes (`GT`). |
 
-NOTE: Snakemake will skip previous steps of a pipeline execution if the configuration is unchanged. Thus, to re-submit a query with the same configuration, the results folder must be cleaned. One way to do so is:
+> **Note on Re-running Queries:** Clicking **🚀 Run Pipeline** in the GUI automatically passes `--forceall` to Snakemake, overwriting `results/` with a fresh run. If you want to preserve outputs from a previous run before starting a new query, back up the `results/` folder first. Another way to delete old results is:
 ```bash
 rm -rf results/summary/* results/align/* results/raw/* results/qc/*
 ```
-#### **Warning:** This will permanently delete generated pipeline outputs. Do not run if you need to preserve previous results. Instead, save them to another folder before cleaning up.
+**Warning:** This will permanently delete generated pipeline outputs. Do not run if you need to preserve previous results. Instead, save them to another folder before cleaning up.
+
 ---
 ## 🔜 Roadmap
 
