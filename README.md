@@ -21,7 +21,7 @@ Iostrack is open source and free to use. Includes a custom Dark and Light mode d
 * Displays analytical matrices detailing total mutations per accession or per primary segment based on the Minimap2 alignments. Mutation types (transition/transversion) as well as their ratio are also included.
 * Visualizes total SNPs and GC content per accession.
 * Produces a heatmap of mutations across the reference genome, with the option to overlay coding region limits over the heatmap.
-* Visualizes the pairwise SNP distance between all whole results.
+* Visualizes the pairwise SNP distance between all analyzed genomes.
 * Generates VCF/CSV and alignment reports.
 
 ## 🖼️ GUI Environment
@@ -60,6 +60,14 @@ flowchart LR
     PARSE --> OUT4["📄 variants.vcf\n(Multi-Sample VCFv4.2)"]
 ```
 ---
+## ✅ Requirements
+
+* Linux or WSL2 due to Minimap2 and Snakemake only running natively on Linux.
+* Conda, Miniconda, Mamba or Miniforge. IDEs such as VSCode with WSL access also work.
+* Python 3.11 (other versions not tested yet).
+* Internet access for NCBI or ENA queries. If results are already present, it is not required.
+
+---
 ## 📥 Installation
 
 From your preferred Linux/WSL command prompt: 
@@ -77,8 +85,41 @@ python -m pytest -v
 #Open the interactive GUI dashboard
 streamlit run app.py
 ```
-#### Once the GUI opens, configure your settings in the sidebar to the left and then click "**🚀 Run Pipeline**" to start pipeline execution. NOTE: When querying NCBI, a valid e-mail address is required for their API.
-Results are generated under root/results/
+## 💡 Example Run
+
+1. Select `NCBI` as the data source.
+2. Enter a reference accession, such as `NC_001781.1`.
+3. Select **By Organism & Keyword**.
+4. Enter the organism and sequence title filter (title filter will automatically be removed if left empty)
+5. Provide an NCBI email address.
+6. Set quality-control thresholds.
+7. Click **🚀 Run Pipeline**.
+
+### NOTE: When querying NCBI, a valid e-mail address is required for their API. However, the example e-mail also functions.
+---
+## 📊 Results
+
+Iostrack organizes its outputs hierarchically inside the `results/` directory. Below is the reference guide for every file generated during a pipeline execution:
+
+| Directory / File | Category | Description & Downstream Purpose |
+| :--- | :--- | :--- |
+| **`results/raw/reference.fasta`** | Reference | Raw nucleotide sequence of the baseline reference genome used by `minimap2`. |
+| **`results/raw/reference.gb`** | Reference | GenBank flat file (`.gb`) parsed by Biopython to extract viral gene boundaries (`CDS`) and reading frames. |
+| **`results/raw/isolates.fasta`** | Raw Input | Filtered pool of wild-type isolate genomes downloaded from NCBI Entrez or the ENA Portal API. |
+| **`results/raw/metadata.csv`** | Metadata | Cohort metadata (`Accession`, `Title`, `Length_bp`, `UpdateDate`) mapped to GUI dataframes. |
+| **`results/qc/clean_isolates.fasta`** | Quality Control | Subset of isolate genomes that successfully passed length and ambiguous base (`N%`) QC filters. |
+| **`results/qc/qc_report.csv`** | Quality Control | Per-sample QC metrics table tracking `Length_bp`, `GC_Percent`, `N_Percent`, and pass/fail `Status`. |
+| **`results/align/alignments.paf`** | Alignment | Raw Pairwise Alignment Format (`.paf`) containing high-resolution mapping coordinates and `cs:Z:` tags. |
+| **`results/summary/split_alignments.csv`** | Structural | Detailed coordinate breakdown of non-secondary mapped segments (including split/supplementary alignments). |
+| **`results/summary/gene_features.csv`** | Annotation | Structured table of reference viral genes (`Gene`, `Product`, `Start`, `End`, `Strand`) for CDS track overlays. |
+| **`results/summary/sample_report.csv`** | Summary Report | Aggregated cohort report combining mutational burdens, $Ti/Tv$ ratios, and $dN/dS$ missense/synonymous metrics. |
+| **`results/summary/snp_coordinates.csv`** | Variant Loci | Granular locus-by-locus table of every SNP, tracking base changes, mutational classes, and HGVS protein changes. |
+| **`results/summary/variants.vcf`** | Interoperable | Standards-compliant **Multi-Sample VCF v4.2** file with `NS`, `AF`, `GENE`, `CONSEQ`, `AA`, and binary sample genotypes (`GT`). |
+
+NOTE: Snakemake will skip previous steps of a pipeline execution if the configuration is unchanged. Thus, to re-submit a query with the same configuration, the results folder must be cleaned. One way to do so is:
+```bash
+rm -rf results/summary/* results/align/* results/raw/* results/qc/*
+```
 ---
 ## 🔜 Roadmap
 
