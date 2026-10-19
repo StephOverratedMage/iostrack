@@ -10,9 +10,19 @@
 
 Built with **Snakemake** for reproducible workflow orchestration and **Streamlit + Plotly** for real-time visual analytics, Iostrack transforms raw unaligned FASTA sequences into actionable epidemiological metrics—including **GenBank CDS amino acid consequences**, **$Ti/Tv$ mutational signatures**, **structural split-alignment coordinates**, **pairwise SNP distance matrices**, and **standards-compliant multi-sample VCFv4.2 exports**.
 
----
+Includes a custom Dark and Light mode depending on visual preference.
 
-## 🏗️ Pipeline Architecture
+---
+## 🖼️ GUI Environment
+
+Interactive plots which visualize SNP counts and types across multiple sequences compared to the reference sequence.
+
+<img width="930" height="793" alt="tab1" src="https://github.com/user-attachments/assets/5a99b093-3cb0-4dae-a09d-c9c7a465876b" />
+<img width="942" height="805" alt="tab2" src="https://github.com/user-attachments/assets/d3d82461-c8c9-44b6-80aa-ee723271f9b7" />
+<img width="966" height="822" alt="tab3" src="https://github.com/user-attachments/assets/d3947a3a-6be2-4479-b2db-eb9be2759066" />
+
+
+### 🏗️ Pipeline Architecture
 
 ```mermaid
 flowchart LR
