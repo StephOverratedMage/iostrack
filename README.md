@@ -6,7 +6,8 @@
 ![Minimap2](https://img.shields.io/badge/Aligner-Minimap2-orange)
 ![Tests](https://img.shields.io/badge/Tests-Pytest-0A9EDC?logo=pytest)
 
-**Iostrack** is an end-to-end bioinformatics workflow and interactive surveillance GUI designed to fetch, quality-filter, align, and functionally annotate viral isolate genomes from **NCBI Entrez** and the **European Nucleotide Archive (ENA)**. "Ios" comes from the Greek word meaning "virus".
+**Iostrack** is an end-to-end bioinformatics workflow and interactive surveillance GUI for fetching, quality-filtering, aligning, and annotating viral isolate genomes. "Ios" comes from the Greek word meaning "virus".
+It supports **NCBI Entrez** and the **European Nucleotide Archive (ENA)** data sources.
 
 Built with **Snakemake** for reproducible workflow orchestration and **Streamlit + Plotly** for real-time visual analytics, Iostrack transforms raw unaligned FASTA sequences into actionable epidemiological metrics—including **GenBank CDS amino acid consequences**, **$Ti/Tv$ mutational signatures**, **structural split-alignment coordinates**, **pairwise SNP distance matrices**, and **standards-compliant multi-sample VCFv4.2 exports**.
 
@@ -14,15 +15,28 @@ Iostrack is open source and free to use. Includes a custom Dark and Light mode d
 
 ---
 ## 📋 Contents
-- [Features](#🛠️-features)
-- [GUI Environment](#🖼️-gui-environment)
-- [Pipeline Architecture](#🏗️-pipeline-architecture)
-- [Requirements](#✅-requirements)
-- [Installation](#📥-installation)
-- [Example Run](#💡-example-run)
-- [Results](#📊-results)
-- [Roadmap](#🔜-roadmap)
-- [License](#📝-license)
+- [Definitions](#definitions)
+- [Features](#features)
+- [GUI Environment](#gui-environment)
+- [Pipeline Architecture](#pipeline-architecture)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Example Run](#example-run)
+- [Results](#results)
+- [Roadmap](#roadmap)
+- [License](#license)
+---
+## 🔎 Definitions
+####
+N content / N%: Ambiguous base call percentage.
+Ti/Tv: The ratio of transitions divided by transversions (Transitions are A to G and vice versa, C to T and vice versa. Transversions are A/G to C/T and vice versa)
+CDS: Coding DNA Sequence. A segment of DNA that is transcribed and eventually translated into a protein molecule.
+dN/dS: The ratio of non-synonymous mutations divided by synonymous mutations. High ratio typically indicates faster evolution.
+PAF: Population Attributable Fraction.
+HGVS: Human Genome Variation Society nomenclature used for describing genetic variants.
+VCF: Variant Call Format, a standard text file format for storing DNA sequence variations.
+AF: Info field for VCF files, displaying allele frequency for each alternative allele.
+GT: Genotype
 ---
 ## 🛠️ Features
 
@@ -41,7 +55,7 @@ Configure search and filtering through the sidebar:
 
 <img width="330" height="598" alt="iostrack sidebar showing NCBI reference and isolate configuration" src="https://github.com/user-attachments/assets/948d42fa-847e-4f08-bd35-ccede671943b" />
 
-Interactive plots which visualize SNP counts and types across multiple sequences compared to the reference sequence.
+The dashboard includes interactive plots that visualize SNP counts and mutation types across multiple sequences compared with the reference genome.
 
 <img width="930" height="793" alt="iostrack mutation summary tab" src="https://github.com/user-attachments/assets/5a99b093-3cb0-4dae-a09d-c9c7a465876b" />
 <img width="942" height="805" alt="iostrack mutation heatmap and smaller segment mutation table" src="https://github.com/user-attachments/assets/d3d82461-c8c9-44b6-80aa-ee723271f9b7" />
@@ -125,7 +139,7 @@ Iostrack organizes its outputs hierarchically inside the `results/` directory. B
 | **`results/summary/gene_features.csv`** | Annotation | Structured table of reference viral genes (`Gene`, `Product`, `Start`, `End`, `Strand`) for CDS track overlays. |
 | **`results/summary/sample_report.csv`** | Summary Report | Aggregated cohort report combining mutational burdens, $Ti/Tv$ ratios, and $dN/dS$ missense/synonymous metrics. |
 | **`results/summary/snp_coordinates.csv`** | Variant Loci | Granular locus-by-locus table of every SNP, tracking base changes, mutational classes, and HGVS protein changes. |
-| **`results/summary/variants.vcf`** | Interoperable | Standards-compliant **Multi-Sample VCF v4.2** file with `NS`, `AF`, `GENE`, `CONSEQ`, `AA`, and binary sample genotypes (`GT`). |
+| **`results/summary/variants.vcf`** | Interoperable | **Multi-Sample VCF v4.2** file with `NS`, `AF`, `GENE`, `CONSEQ`, `AA`, and binary sample genotypes (`GT`). |
 
 NOTE: Snakemake will skip previous steps of a pipeline execution if the configuration is unchanged. Thus, to re-submit a query with the same configuration, the results folder must be cleaned. One way to do so is:
 ```bash
