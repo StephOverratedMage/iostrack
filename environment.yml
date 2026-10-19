@@ -1,0 +1,16 @@
+name: patho-gui
+channels:
+  - conda-forge
+  - bioconda
+  - defaults
+dependencies:
+  - python=3.11
+  - snakemake-minimal>=8.0
+  - minimap2>=2.26
+  - biopython>=1.83
+  - pandas>=2.2
+  - plotly>=5.20
+  - streamlit>=1.35
+  - pyyaml>=6.0
+  - requests>=2.31
+  - pytest>=8.0

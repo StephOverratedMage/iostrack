@@ -1,0 +1,22 @@
+# Snakemake cache, logs, and local conda environments
+.snakemake/
+snakemake.log
+
+# Pipeline output data (users generate these locally)
+results/
+
+# Python & pytest cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Streamlit local theme overrides
+.streamlit/
+
+# OS & IDE files
+.DS_Store
+.vscode/
+.idea/
+*.swp
+Miniforge3-Linux-x86_64.sh

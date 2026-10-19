@@ -1,0 +1,54 @@
+configfile: "config/config.yaml"
+
+rule all:
+    input:
+        "results/summary/sample_report.csv",
+        "results/summary/split_alignments.csv",
+        "results/summary/snp_coordinates.csv",
+        "results/summary/gene_features.csv",
+        "results/summary/variants.vcf"
+
+rule fetch_sequences:
+    output:
+        "results/raw/reference.fasta",
+        "results/raw/reference.gb",
+        "results/raw/isolates.fasta",
+        "results/raw/metadata.csv"
+    script:
+        "scripts/fetch_ena.py" if config.get("data_source") == "ENA" else "scripts/fetch_ncbi.py"
+
+rule qc_filter:
+    input:
+        "results/raw/isolates.fasta"
+    output:
+        "results/qc/clean_isolates.fasta",
+        "results/qc/qc_report.csv"
+    script:
+        "scripts/qc_filter.py"
+
+rule align_genomes:
+    input:
+        ref="results/raw/reference.fasta",
+        isolates="results/qc/clean_isolates.fasta"
+    output:
+        "results/align/alignments.paf"
+    conda:
+        "envs/align.yaml"
+    shell:
+        "minimap2 -x {config[alignment_preset]} --secondary=no --cs {input.ref} {input.isolates} > {output}"
+
+rule summarize_variants:
+    input:
+        paf="results/align/alignments.paf",
+        meta="results/raw/metadata.csv",
+        qc="results/qc/qc_report.csv",
+        ref="results/raw/reference.fasta",
+        gb="results/raw/reference.gb"
+    output:
+        report="results/summary/sample_report.csv",
+        splits="results/summary/split_alignments.csv",
+        coords="results/summary/snp_coordinates.csv",
+        genes="results/summary/gene_features.csv",
+        vcf="results/summary/variants.vcf"
+    script:
+        "scripts/parse_mutations.py"

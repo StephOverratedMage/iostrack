@@ -1,0 +1,13 @@
+alignment_preset: asm20
+data_source: ENA
+ena_query: tax_tree(11250)
+ena_taxon: '11250'
+genome_type: Complete genome
+max_ambiguous_n_percent: 1.0
+max_sequences: 50
+min_length: 14000
+ncbi_email: your_email@example.com
+organism: Respiratory Syncytial Virus
+reference_accession: NC_001781.1
+search_mode: By Organism & Keyword
+search_term: '"Respiratory Syncytial Virus"[Organism] AND "complete genome"[Title]'
