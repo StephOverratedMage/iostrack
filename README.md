@@ -28,15 +28,15 @@ Iostrack is open source and free to use. Includes a custom Dark and Light mode d
 ---
 ## 🔎 Definitions
 ####
-N content / N%: Ambiguous base call percentage.
-Ti/Tv: The ratio of transitions divided by transversions (Transitions are A to G and vice versa, C to T and vice versa. Transversions are A/G to C/T and vice versa)
-CDS: Coding DNA Sequence. A segment of DNA that is transcribed and eventually translated into a protein molecule.
-dN/dS: The ratio of non-synonymous mutations divided by synonymous mutations. High ratio typically indicates faster evolution.
-PAF: Population Attributable Fraction.
-HGVS: Human Genome Variation Society nomenclature used for describing genetic variants.
-VCF: Variant Call Format, a standard text file format for storing DNA sequence variations.
-AF: Info field for VCF files, displaying allele frequency for each alternative allele.
-GT: Genotype
+* N content / N%: Ambiguous base call percentage.
+* Ti/Tv: The ratio of transitions divided by transversions (Transitions are A to G and vice versa, C to T and vice versa. Transversions are A/G to C/T and vice versa)
+* CDS: Coding DNA Sequence. A segment of DNA that is transcribed and eventually translated into a protein molecule.
+* dN/dS: The ratio of non-synonymous mutations divided by synonymous mutations. High ratio typically indicates faster evolution.
+* PAF: Population Attributable Fraction.
+* HGVS: Human Genome Variation Society nomenclature used for describing genetic variants.
+* VCF: Variant Call Format, a standard text file format for storing DNA sequence variations.
+* AF: Info field for VCF files, displaying allele frequency for each alternative allele.
+* GT: Genotype
 ---
 ## 🛠️ Features
 
