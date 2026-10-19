@@ -136,9 +136,9 @@ Iostrack organizes its outputs hierarchically inside the `results/` directory. B
 | :--- | :--- | :--- |
 | **`results/raw/reference.fasta`** | Reference | Raw nucleotide sequence of the baseline reference genome used by `minimap2`. |
 | **`results/raw/reference.gb`** | Reference | GenBank flat file (`.gb`) parsed by Biopython to extract viral gene boundaries (`CDS`) and reading frames. |
-| **`results/raw/isolates.fasta`** | Raw Input | Filtered pool of viral isolate genomes downloaded from NCBI Entrez or the ENA Portal API. |
+| **`results/raw/isolates.fasta`** | Raw Input | Pre-screened isolate genomes retained by the NCBI/ENA fetcher after length, ambiguous-base, duplicate, and reference-exclusion checks. |
 | **`results/raw/metadata.csv`** | Metadata | Cohort metadata (`Accession`, `Title`, `Length_bp`, `UpdateDate`) mapped to GUI dataframes. |
-| **`results/qc/clean_isolates.fasta`** | Quality Control | Subset of isolate genomes that successfully passed length and ambiguous base (`N%`) QC filters. |
+| **`results/qc/clean_isolates.fasta`** | Quality Control | Final QC output passed to Minimap2 after the workflow’s QC rule. |
 | **`results/qc/qc_report.csv`** | Quality Control | Per-sample QC metrics table tracking `Length_bp`, `GC_Percent`, `N_Percent`, and pass/fail `Status`. |
 | **`results/align/alignments.paf`** | Alignment | Raw Pairwise Alignment Format (`.paf`) containing high-resolution mapping coordinates and `cs:Z:` tags. |
 | **`results/summary/split_alignments.csv`** | Structural | Detailed coordinate breakdown of non-secondary mapped segments (including split/supplementary alignments). |
