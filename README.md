@@ -90,7 +90,7 @@ streamlit run app.py
 1. Select `NCBI` as the data source.
 2. Enter a reference accession, such as `NC_001781.1`.
 3. Select **By Organism & Keyword**.
-4. Enter the organism and sequence title filter (title filter will automatically be removed if left empty)
+4. Enter the organism and sequence title filter. Leave the title filter empty to automatically disable it.
 5. Provide an NCBI email address.
 6. Set quality-control thresholds.
 7. Click **🚀 Run Pipeline**.
