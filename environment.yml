@@ -1,4 +1,4 @@
-name: iostracker
+name: iostrack
 channels:
   - conda-forge
   - bioconda
