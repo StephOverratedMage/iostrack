@@ -6,13 +6,24 @@
 ![Minimap2](https://img.shields.io/badge/Aligner-Minimap2-orange)
 ![Tests](https://img.shields.io/badge/Tests-Pytest-0A9EDC?logo=pytest)
 
-**Iostrack** is an end-to-end bioinformatics workflow and interactive surveillance GUI designed to fetch, quality-filter, align, and functionally annotate viral isolate genomes from **NCBI Entrez** and the **European Nucleotide Archive (ENA)**.
+**Iostrack** is an end-to-end bioinformatics workflow and interactive surveillance GUI designed to fetch, quality-filter, align, and functionally annotate viral isolate genomes from **NCBI Entrez** and the **European Nucleotide Archive (ENA)**. "Ios" comes from the Greek word meaning "virus".
 
 Built with **Snakemake** for reproducible workflow orchestration and **Streamlit + Plotly** for real-time visual analytics, Iostrack transforms raw unaligned FASTA sequences into actionable epidemiological metrics—including **GenBank CDS amino acid consequences**, **$Ti/Tv$ mutational signatures**, **structural split-alignment coordinates**, **pairwise SNP distance matrices**, and **standards-compliant multi-sample VCFv4.2 exports**.
 
 Iostrack is open source and free to use. Includes a custom Dark and Light mode depending on visual preference. Also supports WSL!
 
 ---
+## 🛠️ Features
+
+* Allows for querying the NCBI or ENA databases to fetch DNA sequences based on search terms (Organism, title terms) or accession numbers.
+* Aligns all results to a reference genome specified by the user.
+* Allows for filtering said results by minimum length (bp), maximum N content percentage, maximum divergence from the reference and setting a maximum number of results to be displayed and analyzed.
+* Displays analytical matrices detailing total mutations per accession or per chunk. Mutation types (transition/transversion) as well as their ratio are also included.
+* Visualizes total SNPs and GC content per accession.
+* Produces a heatmap of mutations across the reference genome, with the option to overlay coding region limits over the heatmap.
+* Visualizes the pairwise SNP distance between all whole results.
+* Generate VCF/CSV and alignment reports.
+
 ## 🖼️ GUI Environment
 
 Interactive plots which visualize SNP counts and types across multiple sequences compared to the reference sequence.
@@ -68,3 +79,6 @@ streamlit run app.py
 
 **Iostrack is a prototype and work in progress. Features coming soon include: More customizability within plots, as well as more diverse and useful visualizations. More ways to analyze and sort results. 
 Any feedback is appreciated!** 
+
+## 📝 License
+This project is licensed under the MIT License. See [LICENSE](LICENSE).
