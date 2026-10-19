@@ -10,7 +10,7 @@
 
 Built with **Snakemake** for reproducible workflow orchestration and **Streamlit + Plotly** for real-time visual analytics, Iostrack transforms raw unaligned FASTA sequences into actionable epidemiological metrics—including **GenBank CDS amino acid consequences**, **$Ti/Tv$ mutational signatures**, **structural split-alignment coordinates**, **pairwise SNP distance matrices**, and **standards-compliant multi-sample VCFv4.2 exports**.
 
-Includes a custom Dark and Light mode depending on visual preference.
+Iostrack is open source and free to use. Includes a custom Dark and Light mode depending on visual preference. Also supports WSL!
 
 ---
 ## 🖼️ GUI Environment
@@ -22,7 +22,7 @@ Interactive plots which visualize SNP counts and types across multiple sequences
 <img width="966" height="822" alt="tab3" src="https://github.com/user-attachments/assets/d3947a3a-6be2-4479-b2db-eb9be2759066" />
 
 
-### 🏗️ Pipeline Architecture
+## 🏗️ Pipeline Architecture
 
 ```mermaid
 flowchart LR
@@ -43,3 +43,28 @@ flowchart LR
     PARSE --> OUT2["🧬 snp_coordinates.csv\n(HGVS p. AA Changes & Loci)"]
     PARSE --> OUT3["✂️ split_alignments.csv\n(Structural Segments)"]
     PARSE --> OUT4["📄 variants.vcf\n(Multi-Sample VCFv4.2)"]
+```
+---
+## 📥 Installation
+
+From your preferred Linux/WSL command prompt: 
+
+```bash
+git clone https://github.com/StephOverratedMage/iostrack.git
+cd iostrack
+
+conda env create -f environment.yml
+conda activate iostrack
+
+#Run the automated tests to verify installation
+python -m pytest -v
+
+#Open the interactive GUI dashboard
+streamlit run app.py
+```
+#### Once the GUI opens, configure your settings in the sidebar to the left and then click "**🚀 Run Pipeline**" to start pipeline execution. NOTE: When querying NCBI, a valid e-mail address is required for their API.
+---
+## 🔜 Future prospects
+
+**Iostrack is a prototype and work in progress. Features coming soon include: More customizability within plots, as well as more diverse and useful visualizations. More ways to analyze and sort results. 
+Any feedback is appreciated!** 
