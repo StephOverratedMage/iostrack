@@ -13,6 +13,17 @@ Built with **Snakemake** for reproducible workflow orchestration and **Streamlit
 Iostrack is open source and free to use. Includes a custom Dark and Light mode depending on visual preference. Also supports WSL!
 
 ---
+## 📋 Contents
+- [Features](#features)
+- [GUI Environment](#gui-environment)
+- [Pipeline Architecture](#pipeline-architecture)
+- [Requirements](#requirements)
+- [Installation](#installation)
+- [Example Run](#example-run)
+- [Results](#results)
+- [Roadmap](#roadmap)
+- [License](#license)
+---
 ## 🛠️ Features
 
 * Allows for querying the NCBI or ENA databases to fetch DNA sequences based on search terms (Organism, title terms) or accession numbers.
@@ -28,13 +39,13 @@ Iostrack is open source and free to use. Includes a custom Dark and Light mode d
 
 Configure search and filtering through the sidebar:
 
-<img width="330" height="598" alt="iostrack sidebar" src="https://github.com/user-attachments/assets/948d42fa-847e-4f08-bd35-ccede671943b" />
+<img width="330" height="598" alt="iostrack sidebar showing NCBI reference and isolate configuration" src="https://github.com/user-attachments/assets/948d42fa-847e-4f08-bd35-ccede671943b" />
 
 Interactive plots which visualize SNP counts and types across multiple sequences compared to the reference sequence.
 
-<img width="930" height="793" alt="tab1" src="https://github.com/user-attachments/assets/5a99b093-3cb0-4dae-a09d-c9c7a465876b" />
-<img width="942" height="805" alt="tab2" src="https://github.com/user-attachments/assets/d3d82461-c8c9-44b6-80aa-ee723271f9b7" />
-<img width="966" height="822" alt="tab3" src="https://github.com/user-attachments/assets/d3947a3a-6be2-4479-b2db-eb9be2759066" />
+<img width="930" height="793" alt="iostrack mutation summary tab" src="https://github.com/user-attachments/assets/5a99b093-3cb0-4dae-a09d-c9c7a465876b" />
+<img width="942" height="805" alt="iostrack mutation heatmap and smaller segment mutation table" src="https://github.com/user-attachments/assets/d3d82461-c8c9-44b6-80aa-ee723271f9b7" />
+<img width="966" height="822" alt="iostrack pairwise SNP distance visualization" src="https://github.com/user-attachments/assets/d3947a3a-6be2-4479-b2db-eb9be2759066" />
 
 
 ## 🏗️ Pipeline Architecture
@@ -105,7 +116,7 @@ Iostrack organizes its outputs hierarchically inside the `results/` directory. B
 | :--- | :--- | :--- |
 | **`results/raw/reference.fasta`** | Reference | Raw nucleotide sequence of the baseline reference genome used by `minimap2`. |
 | **`results/raw/reference.gb`** | Reference | GenBank flat file (`.gb`) parsed by Biopython to extract viral gene boundaries (`CDS`) and reading frames. |
-| **`results/raw/isolates.fasta`** | Raw Input | Filtered pool of wild-type isolate genomes downloaded from NCBI Entrez or the ENA Portal API. |
+| **`results/raw/isolates.fasta`** | Raw Input | Filtered pool of viral isolate genomes downloaded from NCBI Entrez or the ENA Portal API. |
 | **`results/raw/metadata.csv`** | Metadata | Cohort metadata (`Accession`, `Title`, `Length_bp`, `UpdateDate`) mapped to GUI dataframes. |
 | **`results/qc/clean_isolates.fasta`** | Quality Control | Subset of isolate genomes that successfully passed length and ambiguous base (`N%`) QC filters. |
 | **`results/qc/qc_report.csv`** | Quality Control | Per-sample QC metrics table tracking `Length_bp`, `GC_Percent`, `N_Percent`, and pass/fail `Status`. |
