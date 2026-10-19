@@ -11,7 +11,9 @@ It supports **NCBI Entrez** and the **European Nucleotide Archive (ENA)** as dat
 
 Built with **Snakemake** for reproducible workflow orchestration and **Streamlit + Plotly** for real-time visual analytics, Iostrack transforms raw unaligned FASTA sequences into actionable epidemiological metrics—including **GenBank CDS amino acid consequences**, **$Ti/Tv$ mutational signatures**, **structural split-alignment coordinates**, **pairwise SNP distance matrices**, and **standards-compliant multi-sample VCFv4.2 exports**.
 
-Iostrack is open source and free to use. Includes a custom Dark and Light mode depending on visual preference. Also supports WSL!
+Iostrack is open source and free to use. It includes custom Dark and Light themes and supports Linux and WSL2 environments.
+
+> **Status:** Research prototype. Suitable for exploratory analysis; not intended for clinical or diagnostic use.
 
 ---
 ## 📋 Contents
@@ -30,9 +32,9 @@ Iostrack is open source and free to use. Includes a custom Dark and Light mode d
 ## 🔎 Definitions
 
 * N content / N%: Ambiguous base call percentage.
-* Ti/Tv: The ratio of transitions divided by transversions (Transitions are A to G and vice versa, C to T and vice versa. Transversions are A/G to C/T and vice versa)
+* Ti/Tv: The ratio of transitions to transversions. Transitions are A↔G and C↔T substitutions; transversions are substitutions between a purine and a pyrimidine.
 * CDS: Coding DNA Sequence. A segment of DNA that is transcribed and eventually translated into a protein molecule.
-* Missense / Synonymous Ratio (dN/dS proxy): The ratio of amino-acid-altering (non-synonymous) SNPs to silent (synonymous) SNPs across coding regions.
+* Missense / Synonymous Ratio (dN/dS proxy): The ratio of amino-acid-altering (non-synonymous) SNPs to silent (synonymous) SNPs across coding regions. This is a simple mutation-count proxy and is not equivalent to a formal dN/dS estimate.
 * PAF: Pairwise Alignment Format, a tab-delimited format for storing sequence alignment information.
 * HGVS: Human Genome Variation Society nomenclature used for describing genetic variants.
 * VCF: Variant Call Format, a standard text file format for storing DNA sequence variations.
@@ -123,7 +125,7 @@ streamlit run app.py
 6. Set quality-control thresholds.
 7. Click **🚀 Run Pipeline**.
 
-NOTE: When querying NCBI, a valid e-mail address is required for their API.
+> **Note:** NCBI Entrez queries require a valid email address for API identification and responsible usage.
 
 ---
 ## 📊 Results
@@ -145,11 +147,11 @@ Iostrack organizes its outputs hierarchically inside the `results/` directory. B
 | **`results/summary/snp_coordinates.csv`** | Variant Loci | Granular locus-by-locus table of every SNP, tracking base changes, mutational classes, and HGVS protein changes. |
 | **`results/summary/variants.vcf`** | Interoperable | **Multi-Sample VCF v4.2** file with `NS`, `AF`, `GENE`, `CONSEQ`, `AA`, and binary sample genotypes (`GT`). |
 
-> **Note on Re-running Queries:** Clicking **🚀 Run Pipeline** in the GUI automatically passes `--forceall` to Snakemake, overwriting `results/` with a fresh run. If you want to preserve outputs from a previous run before starting a new query, back up the `results/` folder first. Another way to delete old results is:
+> **Note on Re-running Queries:** Clicking **🚀 Run Pipeline** invokes Snakemake with `--forceall`, forcing all workflow rules to execute again using the current configuration. Existing output files may be overwritten if the rules complete successfully. The previous run's output files can be deleted fully by running:
 ```bash
 rm -rf results/summary/* results/align/* results/raw/* results/qc/*
 ```
-**Warning:** This will permanently delete generated pipeline outputs. Do not run if you need to preserve previous results. Instead, save them to another folder before cleaning up.
+> **Warning:** This will permanently delete generated pipeline outputs. Do not run if you need to preserve previous results. Instead, save them to another folder before cleaning up.
 
 ---
 ## 🔜 Roadmap
