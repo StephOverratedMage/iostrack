@@ -7,6 +7,7 @@
 ![Tests](https://img.shields.io/badge/Tests-Pytest-0A9EDC?logo=pytest)
 
 **Iostrack** is an end-to-end bioinformatics workflow and interactive surveillance GUI for fetching, quality-filtering, aligning, and annotating viral isolate genomes. "Ios" comes from the Greek word meaning "virus".
+
 It supports **NCBI Entrez** and the **European Nucleotide Archive (ENA)** as data sources.
 
 Built with **Snakemake** for reproducible workflow orchestration and **Streamlit + Plotly** for real-time visual analytics, Iostrack transforms raw unaligned FASTA sequences into actionable epidemiological metrics—including **GenBank CDS amino acid consequences**, **$Ti/Tv$ mutational signatures**, **structural split-alignment coordinates**, **pairwise SNP distance matrices**, and **standards-compliant multi-sample VCFv4.2 exports**.
@@ -46,12 +47,12 @@ Iostrack is open source and free to use. It includes custom Dark and Light theme
 
 * Allows for querying the NCBI or ENA databases to fetch DNA sequences based on search terms (Organism, title terms) or accession numbers.
 * Aligns all results to a reference genome specified by the user.
-* Filters results by minimum length (bp), maximum N content percentage, maximum divergence from the reference and limits the maximum number of sequences downloaded, displayed, and analyzed.
-* Displays analytical matrices detailing total mutations per accession or per primary segment based on the Minimap2 alignments. Mutation types (transition/transversion) as well as their ratio are also included.
+* Filters sequences by minimum length and maximum ambiguous-base percentage, provides configurable Minimap2 alignment presets for different expected divergence levels and limits the maximum number of sequences downloaded, displayed, and analyzed.
+* Displays mutation summary tables and matrices detailing total mutations per accession or per primary segment based on the Minimap2 alignments. Mutation types (transition/transversion) as well as their ratio are also included.
 * Visualizes total SNPs and GC content per accession.
 * Produces a heatmap of mutations across the reference genome, with the option to overlay coding region limits over the heatmap.
 * Visualizes the pairwise SNP distance between all analyzed genomes.
-* Generates VCF/CSV and alignment reports.
+* Generates VCF, CSV and alignment reports.
 
 ## 🖼️ GUI Environment
 
@@ -141,7 +142,7 @@ Iostrack organizes its outputs hierarchically inside the `results/` directory. B
 | **`results/qc/clean_isolates.fasta`** | Quality Control | Final QC output passed to Minimap2 after the workflow’s QC rule. |
 | **`results/qc/qc_report.csv`** | Quality Control | Per-sample QC metrics table tracking `Length_bp`, `GC_Percent`, `N_Percent`, and pass/fail `Status`. |
 | **`results/align/alignments.paf`** | Alignment | Raw Pairwise Alignment Format (`.paf`) containing high-resolution mapping coordinates and `cs:Z:` tags. |
-| **`results/summary/split_alignments.csv`** | Structural | Detailed coordinate breakdown of non-secondary mapped segments (including split/supplementary alignments). |
+| **`results/summary/split_alignments.csv`** | Structural | Detailed coordinate breakdown of primary mapped segments. Secondary and supplementary alignment records are excluded. |
 | **`results/summary/gene_features.csv`** | Annotation | Structured table of reference viral genes (`Gene`, `Product`, `Start`, `End`, `Strand`) for CDS track overlays. |
 | **`results/summary/sample_report.csv`** | Summary Report | Aggregated cohort report combining mutational burdens, Ti/Tv ratios, and missense/synonymous mutation-count proxy metrics. |
 | **`results/summary/snp_coordinates.csv`** | Variant Loci | Granular locus-by-locus table of every SNP, tracking base changes, mutational classes, and HGVS protein changes. |
