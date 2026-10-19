@@ -62,7 +62,7 @@ flowchart LR
 ---
 ## ✅ Requirements
 
-* Linux or WSL2 due to Minimap2 and Snakemake only running natively on Linux.
+* **Linux or WSL2** due to Minimap2 and Snakemake being intended for Linux. Native Windows is untested.
 * Conda, Miniconda, Mamba or Miniforge. IDEs such as VSCode with WSL access also work.
 * Python 3.11 (other versions not tested yet).
 * Internet access for NCBI or ENA queries. If results are already present, it is not required.
@@ -95,7 +95,7 @@ streamlit run app.py
 6. Set quality-control thresholds.
 7. Click **🚀 Run Pipeline**.
 
-### NOTE: When querying NCBI, a valid e-mail address is required for their API. However, the example e-mail also functions.
+### NOTE: When querying NCBI, a valid e-mail address is required for their API.
 ---
 ## 📊 Results
 
@@ -120,6 +120,7 @@ NOTE: Snakemake will skip previous steps of a pipeline execution if the configur
 ```bash
 rm -rf results/summary/* results/align/* results/raw/* results/qc/*
 ```
+#### **Warning:** This will permanently delete generated pipeline outputs. Do not run if you need to preserve previous results. Instead, save them to another folder before cleaning up.
 ---
 ## 🔜 Roadmap
 
