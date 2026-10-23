@@ -159,7 +159,9 @@ rm -rf results/summary/* results/align/* results/raw/* results/qc/*
 
 **Note: Iostrack is a prototype and work in progress. Results should be independently reviewed before being used in publications, clinical workflows, or public-health decisions.
 Features coming soon include: More customizability within plots, as well as more diverse and useful visualizations. More ways to query, filter, analyze and sort results. 
-Any feedback is appreciated!** 
+Any feedback is appreciated!**
+
+Confirmed Upcoming release features: Scientific organism name auto-complete, single-nucleotide resolution mutation tables, a button to delete old run results straight from the GUI. 
 
 ## 📝 License
 This project is licensed under the MIT License. See [LICENSE](LICENSE).
