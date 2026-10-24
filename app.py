@@ -1,9 +1,12 @@
-import streamlit as st
-import yaml
+import os
+import shutil
 import subprocess
 import pandas as pd
 import plotly.express as px
-import os
+import streamlit as st
+import yaml
+import re
+
 
 # --- THEME SWITCHER LOGIC ---
 def set_theme(mode):
@@ -47,54 +50,194 @@ with open("config/config.yaml", "r") as f:
 # 2. Build the interactive sidebar for config tuning
 st.sidebar.header("⚙️ Pipeline Configuration")
 
-# --- DATA SOURCE & QUERY BUILDER ---
-data_source = st.sidebar.selectbox("Data Source", ["NCBI", "ENA"], 
-                                   index=0 if config.get("data_source", "NCBI") == "NCBI" else 1)
+data_source = st.sidebar.selectbox(
+    "Data Source", 
+    ["NCBI", "ENA", "BV-BRC"], 
+    index=["NCBI", "ENA", "BV-BRC"].index(config.get("data_source", "NCBI"))
+)
 config["data_source"] = data_source
 
-st.sidebar.markdown("### 1. Baseline Reference")
-ref_acc = st.sidebar.text_input("Reference Accession", config.get("reference_accession", "NC_001781"))
+@st.cache_data
+def load_pathogen_db(filepath="config/pathogens.csv"):
+    curated = pd.DataFrame([
+        {"Organism": "Severe acute respiratory syndrome coronavirus 2", "Taxon_ID": 2697049, "Default_Ref": "NC_045512", "Default_Min_Len": 28000, "Aliases": "SARS-CoV-2 COVID-19 Betacoronavirus pandemicum"},
+        {"Organism": "Respiratory syncytial virus", "Taxon_ID": 11250, "Default_Ref": "NC_001781", "Default_Min_Len": 14000, "Aliases": "RSV Orthopneumovirus hominis Human orthopneumovirus"},
+        {"Organism": "Alphainfluenzavirus influenzae", "Taxon_ID": 11320, "Default_Ref": "GCF_000865725.1", "Default_Min_Len": 800, "Aliases": "Influenza A virus Flu A H1N1 H3N2 H5N1"},
+        {"Organism": "Betainfluenzavirus influenzae", "Taxon_ID": 11520, "Default_Ref": "GCF_000820495.2", "Default_Min_Len": 800, "Aliases": "Influenza B virus Flu B"},
+        {"Organism": "Orthopoxvirus monkeypox", "Taxon_ID": 10244, "Default_Ref": "NC_063383", "Default_Min_Len": 45000, "Aliases": "Monkeypox virus Mpox MPXV"},
+        {"Organism": "Orthoflavivirus zikaense", "Taxon_ID": 64320, "Default_Ref": "NC_012532", "Default_Min_Len": 10000, "Aliases": "Zika virus ZIKV"},
+        {"Organism": "Orthoflavivirus denguei", "Taxon_ID": 12637, "Default_Ref": "NC_001477", "Default_Min_Len": 10000, "Aliases": "Dengue virus DENV"},
+        {"Organism": "Orthoebolavirus zairense", "Taxon_ID": 186538, "Default_Ref": "NC_002549", "Default_Min_Len": 18000, "Aliases": "Zaire ebolavirus Ebola virus EBOV"},
+        {"Organism": "Morbillivirus hominis", "Taxon_ID": 11234, "Default_Ref": "NC_001498", "Default_Min_Len": 15000, "Aliases": "Measles morbillivirus Measles virus"},
+        {"Organism": "Human immunodeficiency virus 1", "Taxon_ID": 11676, "Default_Ref": "NC_001802", "Default_Min_Len": 8500, "Aliases": "HIV-1 Lentivirus humimdef1"},
+    ])
+    if os.path.exists(filepath):
+        ext_df = pd.read_csv(filepath)
+        for col in ["Default_Ref", "Default_Min_Len", "Aliases"]:
+            if col not in ext_df.columns:
+                ext_df[col] = ""
+        combined = pd.concat([curated, ext_df], ignore_index=True)
+        return combined.drop_duplicates(subset=["Organism"], keep="first")
+    return curated
 
-st.sidebar.markdown("### 2. Wild Isolates")
+pathogen_df = load_pathogen_db()
 
-# Initialize variables so Python doesn't crash regardless of which mode we are in
+# Initialize defaults so no variable is ever undefined
 new_term = config.get("search_term", "")
+ena_query = config.get("ena_query", "tax_tree(11250)")
+bvbrc_query = config.get("bvbrc_query", "eq(taxon_id,11250)")
 new_email = config.get("ncbi_email", "")
+auto_ref = config.get("reference_accession", "NC_001781")
+auto_tax = str(config.get("ena_taxon", "11250"))
+auto_len = int(config.get("min_length", 10000))
 
-if data_source == "NCBI":
-    search_mode = st.sidebar.radio("NCBI Search Mode", ["By Organism & Keyword", "By Accession List"])
-    
-    if search_mode == "By Organism & Keyword":
-        org_val = st.sidebar.text_input("Organism", config.get("organism", "Respiratory Syncytial Virus"))
-        type_val = st.sidebar.text_input("Sequence Type (Title Filter)", config.get("genome_type", ""))
+# Universal Search Mode (works for both NCBI and ENA)
+saved_mode = config.get("search_mode", "By Organism & Keyword")
+search_mode = st.sidebar.radio(
+    "Search Mode",
+    ["By Organism & Keyword", "By Accession List"],
+    index=0 if saved_mode == "By Organism & Keyword" else 1
+)
+config["search_mode"] = search_mode
+
+if search_mode == "By Organism & Keyword":
+    st.sidebar.markdown("### 1. Organism Selection")
+    search_query = st.sidebar.text_input(
+        "🔍 Search Database", 
+        value="", 
+        placeholder="Type name or synonym (e.g., 'SARS', 'severe acute', 'RSV')"
+    )
+
+    if search_query.strip():
+        q = search_query.strip()
+        mask = (
+            pathogen_df["Organism"].astype(str).str.contains(q, case=False, na=False) |
+            pathogen_df["Aliases"].astype(str).str.contains(q, case=False, na=False) |
+            pathogen_df["Taxon_ID"].astype(str).str.contains(q, case=False, na=False)
+        )
+        filtered_df = pathogen_df[mask]
+        organism_options = filtered_df["Organism"].tolist()[:100]
         
-        # Quote multi-word terms so NCBI Entrez applies field tags to the entire phrase
-        clean_org = org_val.strip().strip('"')
-        clean_type = type_val.strip().strip('"')
+        if not organism_options:
+            st.sidebar.warning(f"⚠️ No preset found matching **'{q}'**. Using it as a custom organism query.")
+            organism_options = [q]
+    else:
+        organism_options = pathogen_df["Organism"].head(10).tolist()
+        saved_org = config.get("organism", "Respiratory syncytial virus")
+        if saved_org and saved_org not in organism_options:
+            organism_options = [saved_org] + organism_options
+
+    org_val = st.sidebar.selectbox("Select Organism", options=organism_options) or search_query.strip() or "Respiratory syncytial virus"
+
+    selected_row = pathogen_df[pathogen_df["Organism"] == org_val]
+    if not selected_row.empty:
+        raw_ref = selected_row.iloc[0].get("Default_Ref", None)
+        auto_ref = str(raw_ref) if pd.notna(raw_ref) and str(raw_ref).strip() else auto_ref
+        raw_tax = selected_row.iloc[0].get("Taxon_ID", "11250")
+        auto_tax = str(int(float(raw_tax))) if pd.notna(raw_tax) and str(raw_tax).strip() else "11250"
+        raw_len = selected_row.iloc[0].get("Default_Min_Len", None)
+        auto_len = int(float(raw_len)) if pd.notna(raw_len) and str(raw_len).strip() else auto_len
+
+    if st.session_state.get("last_selected_org") != org_val:
+        st.session_state["last_selected_org"] = org_val
+        if not selected_row.empty and pd.notna(selected_row.iloc[0].get("Default_Ref")) and str(selected_row.iloc[0].get("Default_Ref")).strip():
+            st.session_state["ref_acc_input"] = auto_ref
+
+    config["organism"] = org_val
+    config["ena_taxon"] = auto_tax
+
+    if data_source == "NCBI":
+        type_val = st.sidebar.text_input("Sequence Type (Title Filter)", config.get("genome_type", ""))
+        clean_org = str(org_val or "").strip().strip('"')
+        clean_type = str(type_val or "").strip().strip('"')
         
         if clean_type:
             new_term = f'"{clean_org}"[Organism] AND "{clean_type}"[Title]'
         else:
             new_term = f'"{clean_org}"[Organism]'
             
-        config["organism"], config["genome_type"] = org_val, type_val
-    else:
-        acc_val = st.sidebar.text_area("Accessions (comma-separated)", config.get("accession_list", "OR287049, OR287050"))
-        accs = [x.strip() for x in acc_val.split(",") if x.strip()]
-        new_term = " OR ".join([f"{a}[Accession]" for a in accs]) if accs else ""
-        config["accession_list"] = acc_val
+        config["genome_type"] = type_val
+        config["search_term"] = new_term
+        st.sidebar.info(f"**NCBI Query:**\n`{new_term}`")
         
-    config["search_mode"] = search_mode
+    elif data_source == "ENA":
+        taxon_id = st.sidebar.text_input("Taxon ID (auto-filled from Organism)", value=auto_tax)
+        ena_query = f"tax_tree({taxon_id.strip()})"
+        config["ena_taxon"] = taxon_id.strip()
+        config["ena_query"] = ena_query
+        st.sidebar.info(f"**ENA Query:**\n`{ena_query}`")
+        
+    elif data_source == "BV-BRC":
+        taxon_id = st.sidebar.text_input("Taxon ID (auto-filled from Organism)", value=auto_tax)
+        bvbrc_query = f"eq(taxon_id,{taxon_id.strip()})"
+        config["ena_taxon"] = taxon_id.strip() # We can reuse the taxon parameter
+        config["bvbrc_query"] = bvbrc_query
+        st.sidebar.info(f"**BV-BRC Query:**\n`{bvbrc_query}`")
+
+else:
+    # --- BY ACCESSION LIST MODE (NCBI & ENA) ---
+    st.sidebar.markdown("### 1. Wild Isolate Accessions")
+    acc_val = st.sidebar.text_area(
+        "Accessions (comma, space, or newline separated)",
+        config.get("accession_list", "OR287049, OR287050"),
+        help="Enter NCBI/ENA nucleotide accessions (e.g. OR287049, MT291826) or assembly accessions (e.g. GCA_020736045.1)."
+    )
+    config["accession_list"] = acc_val
+    raw_accs = [x.strip() for x in re.split(r"[,\s]+", str(acc_val)) if x.strip()]
+
+    if data_source == "NCBI":
+        new_term = " OR ".join([f"{a}[Accession]" for a in raw_accs]) if raw_accs else ""
+        config["search_term"] = new_term
+        st.sidebar.info(f"**NCBI Accession Query ({len(raw_accs)}):**\n`{new_term}`")
+    elif data_source == "ENA":
+        ena_accs = [re.sub(r"\.[0-9]+$", "", a) for a in raw_accs]
+        ena_query = "(" + " OR ".join([f'accession="{a}"' for a in ena_accs]) + ")" if ena_accs else ""
+        config["ena_query"] = ena_query
+        st.sidebar.info(f"**ENA Accession Query ({len(ena_accs)}):**\n`{ena_query}`")
+        
+    elif data_source == "BV-BRC":
+        bvbrc_accs = [re.sub(r"\.[0-9]+$", "", a) for a in raw_accs]
+        bvbrc_query = "in(accession,(" + ",".join(bvbrc_accs) + "))" if bvbrc_accs else ""
+        config["bvbrc_query"] = bvbrc_query
+        st.sidebar.info(f"**BV-BRC Accession Query ({len(bvbrc_accs)}):**\n`{bvbrc_query}`")
+
+# --- BASELINE REFERENCE SECTION ---
+st.sidebar.markdown("### 2. Baseline Reference")
+if "ref_acc_input" not in st.session_state:
+    st.session_state["ref_acc_input"] = config.get("reference_accession", auto_ref)
+
+if search_mode == "By Organism & Keyword":
+    if st.sidebar.button("🔍 Auto-Find Reference for Organism", width="stretch"):
+        from Bio import Entrez
+        Entrez.email = config.get("ncbi_email") or "test@example.com"
+        try:
+            with Entrez.esearch(db="assembly", term=f'"{config["organism"]}"[Organism] AND "latest refseq"[Filter]', retmax=5) as h:
+                asm_res = Entrez.read(h)
+            if asm_res["IdList"]:
+                with Entrez.esummary(db="assembly", id=asm_res["IdList"][0]) as sh:
+                    asm_sum = Entrez.read(sh)
+                found_acc = asm_sum["DocumentSummarySet"]["DocumentSummary"][0]["AssemblyAccession"]
+                st.session_state["ref_acc_input"] = found_acc
+                st.sidebar.success(f"Found RefSeq Assembly: {found_acc}")
+            else:
+                with Entrez.esearch(db="nucleotide", term=f'"{config["organism"]}"[Organism] AND refseq[Filter]', retmax=5) as nh:
+                    nuc_res = Entrez.read(nh)
+                if nuc_res["IdList"]:
+                    with Entrez.esummary(db="nucleotide", id=nuc_res["IdList"][0]) as nsh:
+                        nuc_sum = Entrez.read(nsh)
+                    found_acc = nuc_sum[0].get("Caption") or nuc_sum[0].get("AccessionVersion")
+                    st.session_state["ref_acc_input"] = found_acc
+                    st.sidebar.success(f"Found RefSeq Nucleotide: {found_acc}")
+                else:
+                    st.sidebar.warning("No RefSeq reference found automatically. Please enter an accession manually.")
+        except Exception as e:
+            st.sidebar.error(f"Lookup failed: {e}")
+
+ref_acc = st.sidebar.text_input("Reference Accession", key="ref_acc_input")
+config["reference_accession"] = ref_acc
+
+if data_source == "NCBI":
     new_email = st.sidebar.text_input("NCBI Email", config.get("ncbi_email", ""))
-    st.sidebar.info(f"**NCBI Query:**\n`{new_term}`")
-    
-elif data_source == "ENA":
-    st.sidebar.write("ENA uses NCBI Taxon IDs for organism searches.")
-    taxon_id = st.sidebar.text_input("Taxon ID (e.g., 11250 for RSV)", config.get("ena_taxon", "11250"))
-    ena_query = f"tax_tree({taxon_id})"  # <-- Updated to tax_tree
-    config["ena_taxon"] = taxon_id
-    config["ena_query"] = ena_query
-    st.sidebar.info(f"**ENA Query:**\n`{ena_query}`")
 
 st.sidebar.markdown("---")
 new_max = st.sidebar.slider("Max Sequences to Download", 1, 50, config.get("max_sequences", 15))
@@ -102,13 +245,23 @@ new_max = st.sidebar.slider("Max Sequences to Download", 1, 50, config.get("max_
 # --- ADVANCED PARAMETERS ---
 st.sidebar.subheader("🔬 Advanced Parameters")
 
-new_min_len = st.sidebar.number_input("Minimum Length (bp)", value=config.get("min_length", 14000))
-new_max_n = st.sidebar.slider("Max Ambiguous Bases (N%)", 0.0, 10.0, float(config.get("max_ambiguous_n_percent", 1.0)), 0.1)
+new_min_len = st.sidebar.number_input(
+    "Minimum Length (bp)", 
+    value=int(config.get("min_length", auto_len))
+)
+
+new_max_n = st.sidebar.slider(
+    "Max Ambiguous Bases (N%)", 
+    0.0, 10.0, 
+    float(config.get("max_ambiguous_n_percent", 1.0)), 
+    0.1
+)
 
 align_options = {
     "Very Strict (<5% divergence)": "asm5",
     "Moderate (<10% divergence)": "asm10",
-    "Relaxed (<20% divergence)": "asm20"
+    "Relaxed (<20% divergence)": "asm20",
+    "Highly Divergent / Short Segments (map-ont)": "map-ont"
 }
 current_preset = config.get("alignment_preset", "asm5")
 current_label = [k for k, v in align_options.items() if v == current_preset]
@@ -117,30 +270,51 @@ default_idx = list(align_options.keys()).index(current_label[0]) if current_labe
 align_choice = st.sidebar.selectbox("Alignment Stringency", list(align_options.keys()), index=default_idx)
 new_align_preset = align_options[align_choice]
 
-#3 --- RUN BUTTON ---
-if st.sidebar.button("🚀 Run Pipeline"):
-    config["reference_accession"] = ref_acc  # NEW: Saves the baseline reference
+# 3 --- RUN & FLUSH BUTTONS ---
+run_col, flush_col = st.sidebar.columns(2)
+
+if run_col.button("🚀 Run Pipeline", width="stretch"):
+    config["reference_accession"] = ref_acc
+    config["search_mode"] = search_mode
     config["search_term"] = new_term
+    config["ena_query"] = ena_query
+    config["bvbrc_query"] = bvbrc_query   # bv-brc query
     config["ncbi_email"] = new_email
     config["max_sequences"] = new_max
     config["min_length"] = new_min_len
     config["max_ambiguous_n_percent"] = new_max_n
     config["alignment_preset"] = new_align_preset
-    
+
     with open("config/config.yaml", "w") as f:
         yaml.dump(config, f)
-        
+
     with st.spinner("Running Iostrack Engine..."):
         result = subprocess.run(
-            ["snakemake", "-s", "workflow/Snakefile", "-c", "4", "--use-conda", "--forceall"], 
-            capture_output=True, text=True
+            [
+                "snakemake",
+                "-s",
+                "workflow/Snakefile",
+                "-c",
+                "4",
+                "--use-conda",
+                "--forceall",
+            ],
+            capture_output=True,
+            text=True,
         )
-        
+
         if result.returncode == 0:
             st.sidebar.success("✅ Pipeline finished successfully!")
         else:
             st.sidebar.error("❌ Pipeline failed. Check terminal for details.")
             st.sidebar.text(result.stderr)
+
+with flush_col.popover("🗑️ Flush", use_container_width=True):
+    st.markdown("Are you sure you want to delete all files in `results/`?")
+    if st.button("⚠️ Yes, Delete All", type="primary", width="stretch"):
+        if os.path.exists("results"):
+            shutil.rmtree("results")
+            st.rerun()
 
 # 4. The Main Results Dashboard
 st.header("📊 Variant & Structural Analysis")
@@ -208,7 +382,16 @@ if os.path.exists(results_file):
             "🌳 Clade Clustering & Phylogenomics"
         ])
         
-        base_url = "https://www.ncbi.nlm.nih.gov/nuccore/" if config.get("data_source", "NCBI") == "NCBI" else "https://www.ebi.ac.uk/ena/browser/view/"
+        current_source = config.get("data_source", "NCBI")
+        def make_url(acc):
+            if current_source == "ENA":
+                return f"https://www.ebi.ac.uk/ena/browser/view/{acc}"
+            elif current_source == "BV-BRC":
+                # BV-BRC uses GenBank accessions natively, so we route to NCBI
+                # to avoid BV-BRC's heavy frontend failing to render.
+                return f"https://www.ncbi.nlm.nih.gov/nuccore/{acc}"
+            else:
+                return f"https://www.ncbi.nlm.nih.gov/nuccore/{acc}"
         
         with tab1:
             all_accessions = df["Accession"].astype(str).unique().tolist()
@@ -312,12 +495,12 @@ if os.path.exists(results_file):
                         st.info("No missense or nonsense amino acid changes detected in selection.")
             
             disp_df = plot_df.copy()
-            disp_df["Accession"] = base_url + disp_df["Accession"]
+            disp_df["Accession"] = disp_df["Accession"].apply(make_url)
             
             st.dataframe(
                 disp_df, 
                 width="stretch",
-                column_config={"Accession": st.column_config.LinkColumn("Accession", display_text=r".*/([^/]+)")}
+                column_config={"Accession": st.column_config.LinkColumn("Accession", display_text=r"([A-Z]{1,6}_?[0-9]{4,})")}
             )
             
             btn_col1, btn_col2, _ = st.columns([1, 1, 3])
@@ -346,12 +529,15 @@ if os.path.exists(results_file):
                 if not splits_df.empty:
                     splits_df["Accession"] = splits_df["Accession"].astype(str).str.strip()
                 
-                # --- 1. Genomic Hotspot Map with Optional Viral Gene Track Overlay ---
+                # --- 1. Genomic Hotspot Map with Multi-Contig & Non-Overlapping CDS Support ---
                 if not snp_full_df.empty:
                     snp_df = snp_full_df.copy()
                     st.subheader("🧬 Genomic Hotspot Map")
                     
-                    ctrl_col1, ctrl_col2 = st.columns([2, 1])
+                    has_contigs = "Target_Contig" in snp_df.columns and "Contig" in genes_df.columns
+                    contig_list = sorted(snp_df["Target_Contig"].dropna().unique().tolist()) if has_contigs else []
+                    
+                    ctrl_col1, ctrl_col2, ctrl_col3 = st.columns([2, 2, 1])
                     with ctrl_col1:
                         view_mode = st.radio(
                             "Visualization Style",
@@ -359,27 +545,90 @@ if os.path.exists(results_file):
                             horizontal=True
                         )
                     with ctrl_col2:
-                        show_genes = st.checkbox("🧬 Overlay Reference Viral Gene Boundaries (CDS)", value=True)
+                        if len(contig_list) > 1:
+                            selected_contig = st.selectbox(
+                                "Reference Contig / Segment",
+                                ["All Contigs (Concatenated View)"] + contig_list
+                            )
+                        else:
+                            selected_contig = contig_list[0] if contig_list else "All"
+                    with ctrl_col3:
+                        show_genes = st.checkbox("🧬 Overlay CDS", value=True)
                     
-                    # Anchor 60 uniform windows across the full reference genome so coordinates match GenBank 1:1
+                    # Build coordinate space: either single contig or concatenated multi-contig offsets
+                    plot_genes_df = genes_df.copy()
+                    plot_splits_df = splits_df.copy()
+                    
+                    if has_contigs and len(contig_list) > 1:
+                        if selected_contig != "All Contigs (Concatenated View)":
+                            snp_df = snp_df[snp_df["Target_Contig"] == selected_contig].copy()
+                            plot_genes_df = plot_genes_df[plot_genes_df["Contig"] == selected_contig].copy()
+                            if "Target_Contig" in plot_splits_df.columns:
+                                plot_splits_df = plot_splits_df[plot_splits_df["Target_Contig"] == selected_contig].copy()
+                            snp_df["Plot_Pos"] = snp_df["Target_Pos"]
+                        else:
+                            # Calculate cumulative offsets so each segment sits side-by-side without overlapping
+                            all_ctgs = sorted(
+                                set(contig_list)
+                                | (set(plot_genes_df["Contig"].dropna().unique()) if not plot_genes_df.empty else set())
+                            )
+                            ctg_offsets = {}
+                            current_offset = 0
+                            gap = 150  # Visual spacer between segments
+                            for ctg in all_ctgs:
+                                ctg_offsets[ctg] = current_offset
+                                max_snp = snp_df[snp_df["Target_Contig"] == ctg]["Target_Pos"].max() if not snp_df[snp_df["Target_Contig"] == ctg].empty else 0
+                                max_gene = plot_genes_df[plot_genes_df["Contig"] == ctg]["End"].max() if not plot_genes_df[plot_genes_df["Contig"] == ctg].empty else 0
+                                max_split = (
+                                    plot_splits_df[plot_splits_df["Target_Contig"] == ctg]["Target_End"].max()
+                                    if ("Target_Contig" in plot_splits_df.columns and not plot_splits_df[plot_splits_df["Target_Contig"] == ctg].empty)
+                                    else 0
+                                )
+                                ctg_len = int(max(max_snp + 1, max_gene, max_split, 100))
+                                current_offset += ctg_len + gap
+                                
+                            snp_df["Plot_Pos"] = snp_df.apply(
+                                lambda r: int(r["Target_Pos"]) + ctg_offsets.get(r["Target_Contig"], 0), axis=1
+                            )
+                            if not plot_genes_df.empty:
+                                plot_genes_df["Start"] = plot_genes_df.apply(
+                                    lambda r: int(r["Start"]) + ctg_offsets.get(r["Contig"], 0), axis=1
+                                )
+                                plot_genes_df["End"] = plot_genes_df.apply(
+                                    lambda r: int(r["End"]) + ctg_offsets.get(r["Contig"], 0), axis=1
+                                )
+                    else:
+                        snp_df["Plot_Pos"] = snp_df["Target_Pos"]
+                    
                     max_genome_pos = int(max(
-                        snp_df["Target_Pos"].max() + 1,
-                        genes_df["End"].max() if not genes_df.empty else 0,
-                        splits_df["Target_End"].max() if not splits_df.empty else 0
+                        snp_df["Plot_Pos"].max() + 1 if not snp_df.empty else 100,
+                        plot_genes_df["End"].max() if not plot_genes_df.empty else 0,
+                        plot_splits_df["Target_End"].max() if (not plot_splits_df.empty and selected_contig != "All Contigs (Concatenated View)") else 0
                     ))
-                    bin_edges = [int(i * max_genome_pos / 60) for i in range(61)]
-                    all_window_mids = [int((bin_edges[i] + bin_edges[i + 1]) / 2) for i in range(60)]
+                    num_bins = st.slider(
+                        "🔍 Heatmap Resolution (Number of Genomic Windows)",
+                        min_value=30, max_value=300, value=120, step=30,
+                        help="Increase to 180–300 windows to separate small adjacent genes like the 228-bp SARS-CoV-2 E gene."
+                    )
+                    bin_edges = [int(i * max_genome_pos / num_bins) for i in range(num_bins + 1)]
+                    bin_edges = [max(bin_edges[i], i) for i in range(num_bins + 1)]
+                    all_window_mids = [int((bin_edges[i] + bin_edges[i + 1]) / 2) for i in range(num_bins)]
                     
-                    bins = pd.cut(snp_df["Target_Pos"], bins=bin_edges, labels=all_window_mids, include_lowest=True)
+                    bins = pd.cut(snp_df["Plot_Pos"], bins=bin_edges, labels=all_window_mids, include_lowest=True)
                     snp_df["Window"] = bins.astype(float).fillna(0).astype(int)
                     
                     binned_df = snp_df.groupby(["Accession", "Window"]).size().reset_index(name="SNPs")
-                    num_accessions = len(binned_df["Accession"].unique())
+                    num_accessions = max(1, len(binned_df["Accession"].unique()))
+                    
+                    x_label = (
+                        "Concatenated Genome Position Across Segments (bp)"
+                        if selected_contig == "All Contigs (Concatenated View)"
+                        else f"Reference Position on {selected_contig} (bp)"
+                    )
                     
                     if "Heatmap" in view_mode:
                         st.markdown("Each row is an isolate and each column is a genomic window. **Darker red cells** reveal shared mutation hotspots across the cohort.")
                         
-                        # Reindex with all 60 window midpoints so 0-SNP regions are preserved on a linear X-axis
                         heatmap_matrix = (
                             binned_df.pivot(index="Accession", columns="Window", values="SNPs")
                             .reindex(columns=all_window_mids, fill_value=0)
@@ -388,7 +637,7 @@ if os.path.exists(results_file):
                         
                         fig_map = px.imshow(
                             heatmap_matrix,
-                            labels=dict(x="Reference Genome Position (bp)", y="Isolate Accession", color="SNPs"),
+                            labels=dict(x=x_label, y="Isolate Accession", color="SNPs"),
                             color_continuous_scale="Reds",
                             aspect="auto",
                             title="SNP Density & Frequency Across Reference Genome"
@@ -411,30 +660,57 @@ if os.path.exists(results_file):
                             title="SNP Density & Frequency Across Reference Genome"
                         )
                         fig_map.update_layout(
-                            xaxis_title="Reference Genome Position (bp)",
+                            xaxis_title=x_label,
                             height=280 + (num_accessions * 80)
                         )
                         fig_map.for_each_annotation(lambda a: a.update(text=a.text.split("=")[-1]))
                         fig_map.update_xaxes(tickformat="d", range=[0, max_genome_pos])
                         
-                    # Overlay GenBank CDS boundaries and gene badges on top of the chart (layer="above")
-                    if show_genes and not genes_df.empty:
-                        # Collapse overlapping isoforms (like M2-1/M2-2) into one clean span per gene name
-                        plot_genes = (
-                            genes_df.groupby("Gene", as_index=False, sort=False)
+                    # Overlay GenBank CDS boundaries with automatic overlap merging
+                    if show_genes and not plot_genes_df.empty:
+                        group_cols = ["Contig", "Gene"] if "Contig" in plot_genes_df.columns else ["Gene"]
+                        raw_genes = (
+                            plot_genes_df.groupby(group_cols, as_index=False, sort=False)
                             .agg({"Start": "min", "End": "max", "Product": "first"})
+                            .sort_values(["Start", "End"], ascending=[True, False])
                         )
+                        
+                        # Merge nested/overlapping ORFs (e.g. M1/M2, PB1/PB1-F2) so vrects never overlap
+                        merged_intervals = []
+                        for _, row in raw_genes.iterrows():
+                            s, e, g = int(row["Start"]), int(row["End"]), str(row["Gene"])
+                            if not merged_intervals:
+                                merged_intervals.append({"Start": s, "End": e, "Genes": [g]})
+                            else:
+                                prev = merged_intervals[-1]
+                                overlap = min(prev["End"], e) - max(prev["Start"], s)
+                                shorter_len = max(1, min(prev["End"] - prev["Start"], e - s))
+                                
+                                if overlap > 0:
+                                    # If heavily overlapping/nested (>=20%), combine into one clean block
+                                    if (overlap / shorter_len) >= 0.20:
+                                        prev["End"] = max(prev["End"], e)
+                                        if g not in prev["Genes"]:
+                                            prev["Genes"].append(g)
+                                    else:
+                                        # Minor terminal overlap: split cleanly at the midpoint
+                                        mid_split = int((max(prev["Start"], s) + min(prev["End"], e)) / 2)
+                                        prev["End"] = mid_split
+                                        merged_intervals.append({"Start": mid_split + 1, "End": e, "Genes": [g]})
+                                else:
+                                    merged_intervals.append({"Start": s, "End": e, "Genes": [g]})
                         
                         fill_palette = ["rgba(0, 180, 216, 0.14)", "rgba(247, 37, 133, 0.10)"]
                         line_palette = ["rgba(0, 180, 216, 0.85)", "rgba(247, 37, 133, 0.85)"]
                         badge_palette = ["#0077B6", "#C9184A"]
+                        y_shifts = [2, 18, 34]
                         
-                        for idx, g_row in plot_genes.iterrows():
-                            g_start = int(g_row["Start"])
-                            g_end = int(g_row["End"])
+                        for idx, g_row in enumerate(merged_intervals):
+                            g_start = g_row["Start"]
+                            g_end = g_row["End"]
                             g_mid = int((g_start + g_end) / 2)
+                            label_text = "/".join(g_row["Genes"])
                             
-                            # Draw the shaded vertical gene boundaries ON TOP of the heatmap/bars
                             fig_map.add_vrect(
                                 x0=g_start,
                                 x1=g_end,
@@ -445,23 +721,21 @@ if os.path.exists(results_file):
                                 line_color=line_palette[idx % 2]
                             )
                             
-                            # Add a single staggered gene badge along the top edge
                             fig_map.add_annotation(
                                 x=g_mid,
                                 y=1.0,
                                 xref="x",
                                 yref="paper",
-                                text=f"<b>{g_row['Gene']}</b>",
+                                text=f"<b>{label_text}</b>",
                                 showarrow=False,
-                                yshift=14 if idx % 2 == 0 else 2,
+                                yshift=y_shifts[idx % 3],
                                 font=dict(size=11, color="#FFFFFF"),
                                 bgcolor=badge_palette[idx % 2],
                                 borderpad=3,
                                 opacity=0.92
                             )
                             
-                        # Add top margin room so the gene badges above the plot never clip
-                        fig_map.update_layout(margin=dict(t=85))
+                        fig_map.update_layout(margin=dict(t=95))
                     
                     st.plotly_chart(fig_map, width="stretch")
                     
@@ -472,7 +746,7 @@ if os.path.exists(results_file):
                     st.markdown("---")
                     
                     # --- 2. Segment, Gene & Genomic Window Ti/Tv Inspector ---
-                    if "Mutation" in snp_df.columns and not splits_df.empty:
+                    if "Mutation" in snp_full_df.columns and not splits_df.empty:
                         st.subheader("🔬 Segment, Viral Gene & Window Ti/Tv Inspector")
                         st.markdown("Inspect the transition/transversion signature and coding impact inside a specific **viral gene (CDS)**, **aligned segment (chunk)**, or custom **coordinate window**.")
                         
@@ -486,10 +760,17 @@ if os.path.exists(results_file):
                             chunk_mode = st.radio("Filter Mode", filter_modes)
                             
                             if chunk_mode == "By Viral Gene (CDS)":
-                                genes_df["Gene_Label"] = (
-                                    genes_df["Gene"] + " (" + genes_df["Product"].astype(str) +
-                                    " | " + genes_df["Start"].astype(str) + "–" + genes_df["End"].astype(str) + " bp)"
-                                )
+                                if "Contig" in genes_df.columns:
+                                    genes_df["Gene_Label"] = (
+                                        genes_df["Contig"].astype(str) + " | " + genes_df["Gene"].astype(str) +
+                                        " (" + genes_df["Product"].astype(str) + " | " +
+                                        genes_df["Start"].astype(str) + "–" + genes_df["End"].astype(str) + " bp)"
+                                    )
+                                else:
+                                    genes_df["Gene_Label"] = (
+                                        genes_df["Gene"].astype(str) + " (" + genes_df["Product"].astype(str) +
+                                        " | " + genes_df["Start"].astype(str) + "–" + genes_df["End"].astype(str) + " bp)"
+                                    )
                                 chosen_gene_label = st.selectbox("Select Reference Viral Gene:", genes_df["Gene_Label"].tolist())
                                 gene_row = genes_df[genes_df["Gene_Label"] == chosen_gene_label].iloc[0]
                                 
@@ -498,17 +779,20 @@ if os.path.exists(results_file):
                                     options=splits_df["Accession"].unique().tolist(),
                                     default=[]
                                 )
-                                chunk_snps = snp_df[
-                                    (snp_df["Target_Pos"] + 1 >= int(gene_row["Start"])) &
-                                    (snp_df["Target_Pos"] + 1 <= int(gene_row["End"]))
+                                chunk_snps = snp_full_df[
+                                    (snp_full_df["Target_Pos"] + 1 >= int(gene_row["Start"])) &
+                                    (snp_full_df["Target_Pos"] + 1 <= int(gene_row["End"]))
                                 ]
+                                if "Contig" in gene_row and "Target_Contig" in chunk_snps.columns:
+                                    chunk_snps = chunk_snps[chunk_snps["Target_Contig"] == gene_row["Contig"]]
                                 if gene_isolates:
                                     chunk_snps = chunk_snps[chunk_snps["Accession"].isin(gene_isolates)]
                                 chunk_title = f"Gene {gene_row['Gene']} ({gene_row['Start']}–{gene_row['End']} bp)"
                                 
                             elif chunk_mode == "By Alignment Segment (Chunk)":
+                                contig_prefix = (splits_df["Target_Contig"].astype(str) + " | ") if "Target_Contig" in splits_df.columns else ""
                                 splits_df["Segment_Label"] = (
-                                    splits_df["Accession"] + " | Ref: " +
+                                    splits_df["Accession"] + " | " + contig_prefix + "Ref: " +
                                     splits_df["Target_Start"].astype(str) + "–" +
                                     splits_df["Target_End"].astype(str) + " bp (" +
                                     splits_df["Strand"].astype(str) + ")"
@@ -517,15 +801,17 @@ if os.path.exists(results_file):
                                 chosen_seg = st.selectbox("Select Alignment Chunk:", seg_options)
                                 
                                 if chosen_seg == "All Aligned Segments":
-                                    chunk_snps = snp_df
+                                    chunk_snps = snp_full_df
                                     chunk_title = "All Segments"
                                 else:
                                     seg_row = splits_df[splits_df["Segment_Label"] == chosen_seg].iloc[0]
-                                    chunk_snps = snp_df[
-                                        (snp_df["Accession"] == seg_row["Accession"]) &
-                                        (snp_df["Target_Pos"] >= seg_row["Target_Start"]) &
-                                        (snp_df["Target_Pos"] <= seg_row["Target_End"])
+                                    chunk_snps = snp_full_df[
+                                        (snp_full_df["Accession"] == seg_row["Accession"]) &
+                                        (snp_full_df["Target_Pos"] >= seg_row["Target_Start"]) &
+                                        (snp_full_df["Target_Pos"] <= seg_row["Target_End"])
                                     ]
+                                    if "Target_Contig" in seg_row and "Target_Contig" in chunk_snps.columns:
+                                        chunk_snps = chunk_snps[chunk_snps["Target_Contig"] == seg_row["Target_Contig"]]
                                     chunk_title = chosen_seg
                             else:
                                 min_pos = int(splits_df["Target_Start"].min())
@@ -542,9 +828,9 @@ if os.path.exists(results_file):
                                     options=splits_df["Accession"].unique().tolist(),
                                     default=[]
                                 )
-                                chunk_snps = snp_df[
-                                    (snp_df["Target_Pos"] >= coord_range[0]) &
-                                    (snp_df["Target_Pos"] <= coord_range[1])
+                                chunk_snps = snp_full_df[
+                                    (snp_full_df["Target_Pos"] >= coord_range[0]) &
+                                    (snp_full_df["Target_Pos"] <= coord_range[1])
                                 ]
                                 if chunk_isolates:
                                     chunk_snps = chunk_snps[chunk_snps["Accession"].isin(chunk_isolates)]
@@ -592,18 +878,36 @@ if os.path.exists(results_file):
                                 st.plotly_chart(fig_chunk_spec, width="stretch")
                             else:
                                 st.info("No SNPs found inside the selected gene/chunk/window.")
+                        with st.expander("🧬 Single-Nucleotide & Codon-Level Mutation Table (1-Based Coordinates)", expanded=False):
+                            if not chunk_snps.empty:
+                                single_nt_df = chunk_snps.copy()
+                                single_nt_df["Position_1Based"] = single_nt_df["Target_Pos"] + 1
+                                nt_cols = [
+                                    c for c in [
+                                        "Accession", "Target_Contig", "Position_1Based",
+                                        "Mutation", "Mut_Class", "Gene", "Consequence",
+                                        "Codon_Change", "AA_Change", "Product"
+                                    ] if c in single_nt_df.columns
+                                ]
+                                st.dataframe(
+                                    single_nt_df[nt_cols].sort_values(["Position_1Based", "Accession"]),
+                                    width="stretch",
+                                    height=320
+                                )
+                            else:
+                                st.info("No SNPs in current selection.")
                         st.markdown("---")
                 
-                # --- 3. Alignment Segments Table (with sortable Ti_Tv_Ratio & Missense/Synonymous columns) ---
+                # --- 3. Alignment Segments Table ---
                 st.subheader("✂️ Alignment Segments & Coordinate Data")
                 st.markdown("This table shows the exact Reference `Target` and Isolate `Query` start/end coordinates for every mapped segment. Secondary overlapping alignments have been filtered out.")
                 
                 disp_splits = splits_df.copy()
-                disp_splits["Accession"] = base_url + disp_splits["Accession"]
+                disp_splits["Accession"] = disp_splits["Accession"].apply(make_url)
                 
                 cols_to_show = [
                     c for c in [
-                        "Accession", "Target_Start", "Target_End",
+                        "Accession", "Target_Contig", "Target_Start", "Target_End",
                         "Query_Start", "Query_End", "Strand",
                         "SNPs", "Transitions", "Transversions", "Ti_Tv_Ratio",
                         "Missense_SNPs", "Synonymous_SNPs", "Noncoding_SNPs",
@@ -613,7 +917,7 @@ if os.path.exists(results_file):
                 st.dataframe(
                     disp_splits[cols_to_show], 
                     width="stretch",
-                    column_config={"Accession": st.column_config.LinkColumn("Accession", display_text=r".*/([^/]+)")}
+                    column_config={"Accession": st.column_config.LinkColumn("Accession", display_text=r"([A-Z]{1,6}_?[0-9]{4,})")}
                 )
                 st.download_button(
                     "⬇️ Download Coordinate CSV",
@@ -626,7 +930,7 @@ if os.path.exists(results_file):
             st.subheader("🌳 Pairwise SNP Distance Matrix & Clade Clustering")
             st.markdown(
                 "This matrix computes the exact **pairwise nucleotide substitution distance** between every mapped isolate "
-                "and orders samples by genetic similarity so viral lineages/subgroups (e.g., **RSV-A** vs. **RSV-B**) cluster into distinct blocks."
+                "and orders samples by genetic similarity so viral lineages/subgroups cluster into distinct blocks."
             )
             
             if not snp_full_df.empty and len(df) >= 2:
@@ -642,7 +946,7 @@ if os.path.exists(results_file):
                         help="Isolate pairs differing by fewer than this many SNPs are listed in the Linked Pairs table below."
                     )
                 
-                # Build exact allele sets per isolate: {(Target_Pos, Alt_Base), ...}
+                # Build exact allele sets per isolate: {((Target_Contig, Target_Pos), Alt_Base), ...}
                 sample_names = df["Accession"].astype(str).tolist()
                 if include_ref:
                     ref_label = f"REF ({config.get('reference_accession', 'Ref')})"
@@ -653,24 +957,21 @@ if os.path.exists(results_file):
                 snp_sets = {s: set() for s in sample_names}
                 for _, s_row in snp_full_df.iterrows():
                     acc = str(s_row["Accession"])
+                    ctg = str(s_row.get("Target_Contig", "Ref"))
                     if acc in snp_sets:
-                        snp_sets[acc].add((int(s_row["Target_Pos"]), str(s_row["Alt_Base"])))
+                        snp_sets[acc].add(((ctg, int(s_row["Target_Pos"])), str(s_row["Alt_Base"])))
                         
-                # Compute symmetric pairwise SNP distance matrix & order isolates by clade similarity
                 n_samp = len(sample_names)
                 dist_matrix = pd.DataFrame(0, index=sample_names, columns=sample_names)
                 
                 for i in range(n_samp):
                     for j in range(i + 1, n_samp):
                         s1, s2 = sample_names[i], sample_names[j]
-                        # Count positions where s1 and s2 differ
                         diff_loci = snp_sets[s1].symmetric_difference(snp_sets[s2])
-                        # If both mutated the same position to DIFFERENT alt bases, count as 1 SNP difference, not 2
-                        pos_count = len({pos for pos, _ in diff_loci})
+                        pos_count = len({locus for locus, _ in diff_loci})
                         dist_matrix.loc[s1, s2] = pos_count
                         dist_matrix.loc[s2, s1] = pos_count
                         
-                # Greedy nearest-neighbor traversal (or SciPy Ward linkage if installed) to group clades cleanly
                 ordered_samples = [sample_names[0]]
                 remaining = set(sample_names[1:])
                 while remaining:
@@ -684,7 +985,7 @@ if os.path.exists(results_file):
                 fig_dist = px.imshow(
                     dist_matrix,
                     labels=dict(x="Isolate", y="Isolate", color="Pairwise SNPs"),
-                    color_continuous_scale="Viridis", #0 SNPs are Dark Purple, high SNPs are Bright Yellow
+                    color_continuous_scale="Viridis",
                     aspect="auto",
                     title="Ordered Pairwise SNP Distance Matrix (Darker = More Closely Related)"
                 )
@@ -720,7 +1021,7 @@ if os.path.exists(results_file):
                         
                 with pair_col2:
                     st.subheader("📌 Clade-Defining / High-Frequency SNPs")
-                    loci_cols = [c for c in ["Target_Pos", "Mutation", "Gene", "Consequence", "AA_Change"] if c in snp_full_df.columns]
+                    loci_cols = [c for c in ["Target_Contig", "Target_Pos", "Mutation", "Gene", "Consequence", "AA_Change"] if c in snp_full_df.columns]
                     core_snps = (
                         snp_full_df.groupby(loci_cols)["Accession"]
                         .nunique()
@@ -728,7 +1029,7 @@ if os.path.exists(results_file):
                         .sort_values("Isolates_With_SNP", ascending=False)
                         .head(20)
                     )
-                    core_snps["Target_Pos"] = core_snps["Target_Pos"] + 1  # Display 1-based position
+                    core_snps["Target_Pos"] = core_snps["Target_Pos"] + 1
                     core_snps["Cohort_Freq_%"] = ((core_snps["Isolates_With_SNP"] / len(df)) * 100).round(1)
                     st.dataframe(core_snps, width="stretch", height=300)
                     

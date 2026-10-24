@@ -8,6 +8,14 @@ TRANSITIONS = {("A", "G"), ("G", "A"), ("C", "T"), ("T", "C")}
 COMPLEMENT = {"A": "T", "T": "A", "C": "G", "G": "C", "N": "N"}
 CONSEQUENCE_RANK = {"Nonsense (Stop)": 4, "Missense": 3, "Synonymous": 2, "Non-coding": 1}
 
+def clean_accession(raw_id):
+    """Extracts clean base accession from NCBI or ENA."""
+    cleaned = str(raw_id).strip().strip("|")
+    if "|" in cleaned:
+        cleaned = cleaned.split("|")[-1]
+    match = re.search(r"([A-Z]{1,6}_?[0-9]{4,})", cleaned)
+    return match.group(1) if match else cleaned.split(".")[0]
+
 def classify_substitution(ref_base, alt_base):
     """Classifies a SNP as Transition or Transversion."""
     if (ref_base, alt_base) in TRANSITIONS:
@@ -17,7 +25,7 @@ def classify_substitution(ref_base, alt_base):
 def load_genbank_cds(gb_path):
     """
     Parses CDS features from reference.gb and builds a fast coordinate-to-codon index.
-    Returns (gene_rows_list, cds_models_list).
+    Returns (gene_rows_list, cds_models_list) supporting multiple contigs.
     """
     gene_rows = []
     cds_models = []
@@ -26,77 +34,82 @@ def load_genbank_cds(gb_path):
         return gene_rows, cds_models
         
     try:
-        gb_record = SeqIO.read(gb_path, "genbank")
+        gb_records = list(SeqIO.parse(gb_path, "genbank"))
     except Exception:
         return gene_rows, cds_models
         
-    ref_seq_str = str(gb_record.seq).upper()
     seen_genes = set()
     
-    for feat in gb_record.features:
-        if feat.type != "CDS":
-            continue
+    for gb_record in gb_records:
+        contig_id = clean_accession(gb_record.id)
+        ref_seq_str = str(gb_record.seq).upper()
+        
+        for feat in gb_record.features:
+            if feat.type != "CDS":
+                continue
+                
+            gene_name = (
+                feat.qualifiers.get("gene", [None])[0]
+                or feat.qualifiers.get("locus_tag", [None])[0]
+                or feat.qualifiers.get("product", ["CDS"])[0]
+            )
+            product_name = feat.qualifiers.get("product", [gene_name])[0]
+            codon_start = int(feat.qualifiers.get("codon_start", [1])[0]) - 1
             
-        gene_name = (
-            feat.qualifiers.get("gene", [None])[0]
-            or feat.qualifiers.get("locus_tag", [None])[0]
-            or feat.qualifiers.get("product", ["CDS"])[0]
-        )
-        product_name = feat.qualifiers.get("product", [gene_name])[0]
-        codon_start = int(feat.qualifiers.get("codon_start", [1])[0]) - 1
-        
-        start_0 = int(feat.location.start)
-        end_0 = int(feat.location.end)
-        strand_num = feat.location.strand if feat.location.strand is not None else 1
-        strand_str = "+" if strand_num >= 0 else "-"
-        
-        gene_key = (gene_name, start_0 + 1, end_0)
-        if gene_key not in seen_genes:
-            seen_genes.add(gene_key)
-            gene_rows.append({
-                "Gene": str(gene_name),
-                "Product": str(product_name),
-                "Start": start_0 + 1,  # 1-based for display
-                "End": end_0,
-                "Strand": strand_str
+            start_0 = int(feat.location.start)
+            end_0 = int(feat.location.end)
+            strand_num = feat.location.strand if feat.location.strand is not None else 1
+            strand_str = "+" if strand_num >= 0 else "-"
+            
+            gene_key = (contig_id, gene_name, start_0 + 1, end_0)
+            if gene_key not in seen_genes:
+                seen_genes.add(gene_key)
+                gene_rows.append({
+                    "Contig": contig_id,
+                    "Gene": str(gene_name),
+                    "Product": str(product_name),
+                    "Start": start_0 + 1,
+                    "End": end_0,
+                    "Strand": strand_str
+                })
+                
+            cds_positions = []
+            for part in feat.location.parts:
+                p_start, p_end = int(part.start), int(part.end)
+                if (part.strand or 1) >= 0:
+                    cds_positions.extend(range(p_start, p_end))
+                else:
+                    cds_positions.extend(range(p_end - 1, p_start - 1, -1))
+                    
+            cds_positions = cds_positions[codon_start:]
+            pos_to_idx = {g_pos: idx for idx, g_pos in enumerate(cds_positions)}
+            
+            cds_models.append({
+                "contig_id": contig_id,
+                "gene": str(gene_name),
+                "product": str(product_name),
+                "strand": strand_num,
+                "cds_positions": cds_positions,
+                "pos_to_idx": pos_to_idx,
+                "ref_seq": ref_seq_str
             })
             
-        # Build ordered list of 0-based genomic positions in 5' -> 3' transcript order
-        cds_positions = []
-        for part in feat.location.parts:
-            p_start, p_end = int(part.start), int(part.end)
-            if (part.strand or 1) >= 0:
-                cds_positions.extend(range(p_start, p_end))
-            else:
-                cds_positions.extend(range(p_end - 1, p_start - 1, -1))
-                
-        cds_positions = cds_positions[codon_start:]
-        pos_to_idx = {g_pos: idx for idx, g_pos in enumerate(cds_positions)}
-        
-        cds_models.append({
-            "gene": str(gene_name),
-            "product": str(product_name),
-            "strand": strand_num,
-            "cds_positions": cds_positions,
-            "pos_to_idx": pos_to_idx,
-            "ref_seq": ref_seq_str
-        })
-        
     return gene_rows, cds_models
 
-def annotate_snp_consequence(pos_0, ref_base, alt_base, cds_models):
-    """
-    Determines the Gene, Product, Consequence, and Amino Acid Change (HGVS p.) for a 0-based SNP.
-    If a SNP overlaps multiple viral reading frames, returns the highest-impact consequence.
-    """
+def annotate_snp_consequence(contig_id, pos_0, ref_base, alt_base, cds_models):
+    """Determines the Gene, Product, Consequence, Codon_Change, and Amino Acid Change (HGVS p.) for a 0-based SNP."""
     best_hit = {
         "Gene": "Intergenic",
         "Product": "Non-coding region",
         "Consequence": "Non-coding",
+        "Codon_Change": "Non-coding",
         "AA_Change": "Non-coding"
     }
     
     for model in cds_models:
+        if model["contig_id"] != contig_id:
+            continue
+            
         if pos_0 not in model["pos_to_idx"]:
             continue
             
@@ -122,8 +135,12 @@ def annotate_snp_consequence(pos_0, ref_base, alt_base, cds_models):
             ref_codon_chars.append(r_nt)
             alt_codon_chars.append(a_nt)
             
-        ref_aa = str(Seq("".join(ref_codon_chars)).translate())
-        alt_aa = str(Seq("".join(alt_codon_chars)).translate())
+        ref_codon_str = "".join(ref_codon_chars)
+        alt_codon_str = "".join(alt_codon_chars)
+        codon_change_str = f"{ref_codon_str}>{alt_codon_str} (pos {(idx % 3) + 1}/3)"
+        
+        ref_aa = str(Seq(ref_codon_str).translate())
+        alt_aa = str(Seq(alt_codon_str).translate())
         
         if ref_aa == alt_aa:
             conseq = "Synonymous"
@@ -140,17 +157,21 @@ def annotate_snp_consequence(pos_0, ref_base, alt_base, cds_models):
                 "Gene": model["gene"],
                 "Product": model["product"],
                 "Consequence": conseq,
+                "Codon_Change": codon_change_str,
                 "AA_Change": aa_str
             }
             
     return best_hit
 
-def write_multisample_vcf(vcf_path, ref_id, ref_len, snp_df, sample_list):
-    """Writes a standards-compliant VCF v4.2 file with functional gene annotations in INFO."""
+def write_multisample_vcf(vcf_path, contig_lengths, snp_df, sample_list):
+    """Writes a standards-compliant VCF v4.2 file supporting multiple contigs."""
     with open(vcf_path, "w") as out:
         out.write("##fileformat=VCFv4.2\n")
         out.write("##source=Iostrack_Pathogen_Surveillance\n")
-        out.write(f"##contig=<ID={ref_id},length={ref_len}>\n")
+        
+        for c_id, c_len in contig_lengths.items():
+            out.write(f"##contig=<ID={c_id},length={c_len}>\n")
+            
         out.write('##INFO=<ID=NS,Number=1,Type=Integer,Description="Number of Samples With Variant">\n')
         out.write('##INFO=<ID=AF,Number=A,Type=Float,Description="Allele Frequency across mapped cohort">\n')
         out.write('##INFO=<ID=GENE,Number=1,Type=String,Description="Viral Gene Name">\n')
@@ -165,9 +186,9 @@ def write_multisample_vcf(vcf_path, ref_id, ref_len, snp_df, sample_list):
             return
             
         total_samples = len(sample_list)
-        grouped = snp_df.groupby(["Target_Pos", "Ref_Base", "Alt_Base"])
+        grouped = snp_df.groupby(["Target_Contig", "Target_Pos", "Ref_Base", "Alt_Base"])
         
-        for (pos_0, ref_b, alt_b), group in sorted(grouped, key=lambda x: x[0][0]):
+        for (ctg, pos_0, ref_b, alt_b), group in sorted(grouped, key=lambda x: (x[0][0], x[0][1])):
             pos_1 = int(pos_0) + 1
             mut_samples = set(group["Accession"].unique())
             ns = len(mut_samples)
@@ -182,37 +203,37 @@ def write_multisample_vcf(vcf_path, ref_id, ref_len, snp_df, sample_list):
             gt_list = ["1" if s in mut_samples else "0" for s in sample_list]
             gt_str = "\t".join(gt_list)
             
-            out.write(f"{ref_id}\t{pos_1}\t.\t{ref_b}\t{alt_b}\t.\tPASS\t{info_str}\tGT\t{gt_str}\n")
+            out.write(f"{ctg}\t{pos_1}\t.\t{ref_b}\t{alt_b}\t.\tPASS\t{info_str}\tGT\t{gt_str}\n")
 
 def main():
     os.makedirs("results/summary", exist_ok=True)
     
-    ref_record = SeqIO.read("results/raw/reference.fasta", "fasta")
-    ref_id = ref_record.id
-    ref_len = len(ref_record.seq)
+    ref_records = list(SeqIO.parse("results/raw/reference.fasta", "fasta"))
+    contig_lengths = {clean_accession(rec.id): len(rec.seq) for rec in ref_records}
     
-    # Load GenBank CDS models and save gene coordinate table for the GUI
     gene_rows, cds_models = load_genbank_cds("results/raw/reference.gb")
-    genes_df = pd.DataFrame(gene_rows) if gene_rows else pd.DataFrame(columns=["Gene", "Product", "Start", "End", "Strand"])
+    genes_df = pd.DataFrame(gene_rows) if gene_rows else pd.DataFrame(columns=["Contig", "Gene", "Product", "Start", "End", "Strand"])
     genes_df.to_csv("results/summary/gene_features.csv", index=False)
     
-    meta_df = pd.read_csv("results/raw/metadata.csv").drop_duplicates(subset=["Accession"])
-    qc_df = pd.read_csv("results/qc/qc_report.csv").drop_duplicates(subset=["Accession"])
+    meta_df = pd.read_csv("results/raw/metadata.csv")
+    qc_df = pd.read_csv("results/qc/qc_report.csv")
     
-    meta_df["Accession"] = meta_df["Accession"].astype(str).str.strip()
-    qc_df["Accession"] = qc_df["Accession"].astype(str).str.strip()
-    meta_df = meta_df.drop(columns=["Length_bp"], errors="ignore")
+    meta_df["Accession"] = meta_df["Accession"].astype(str).apply(clean_accession)
+    qc_df["Accession"] = qc_df["Accession"].astype(str).apply(clean_accession)
+    meta_df = meta_df.drop_duplicates(subset=["Accession"]).drop(columns=["Length_bp"], errors="ignore")
+    qc_df = qc_df.drop_duplicates(subset=["Accession"])
     
     merged = pd.merge(qc_df, meta_df, on="Accession", how="left")
     
     mutation_details = []
     with open("results/align/alignments.paf", "r") as f:
         for line in f:
-            if "tp:A:P" not in line:
+            if "tp:A:P" not in line and "tp:A:I" not in line:
                 continue
                 
             parts = line.strip().split("\t")
-            isolate_id = parts[0].strip()
+            isolate_id = clean_accession(parts[0])
+            target_contig = clean_accession(parts[5])
             
             cs_tag = ""
             for tag in parts[12:]:
@@ -222,6 +243,7 @@ def main():
                     
             mutation_details.append({
                 "Accession": isolate_id,
+                "Target_Contig": target_contig,
                 "Target_Start": int(parts[7]),
                 "Target_End": int(parts[8]),
                 "Query_Start": int(parts[2]),
@@ -241,6 +263,8 @@ def main():
         
         for _, row in details_df.iterrows():
             current_pos = row["Target_Start"]
+            target_ctg = row["Target_Contig"]
+            
             snp_count, insertion_count, deletion_count = 0, 0, 0
             ti_count, tv_count = 0, 0
             missense_count, synonymous_count, noncoding_count = 0, 0, 0
@@ -262,7 +286,7 @@ def main():
                         else:
                             tv_count += 1
                             
-                        ann = annotate_snp_consequence(current_pos, ref_b, alt_b, cds_models)
+                        ann = annotate_snp_consequence(target_ctg, current_pos, ref_b, alt_b, cds_models)
                         if ann["Consequence"] in ("Missense", "Nonsense (Stop)"):
                             missense_count += 1
                         elif ann["Consequence"] == "Synonymous":
@@ -272,6 +296,7 @@ def main():
                             
                         snp_coordinates.append({
                             "Accession": row["Accession"],
+                            "Target_Contig": target_ctg,
                             "Target_Pos": current_pos,
                             "Ref_Base": ref_b,
                             "Alt_Base": alt_b,
@@ -280,6 +305,7 @@ def main():
                             "Gene": ann["Gene"],
                             "Product": ann["Product"],
                             "Consequence": ann["Consequence"],
+                            "Codon_Change": ann["Codon_Change"],
                             "AA_Change": ann["AA_Change"]
                         })
                         snp_count += 1
@@ -294,6 +320,7 @@ def main():
             
             final_mutations.append({
                 "Accession": row["Accession"],
+                "Target_Contig": target_ctg,
                 "Target_Start": row["Target_Start"],
                 "Target_End": row["Target_End"],
                 "Query_Start": row["Query_Start"],
@@ -336,7 +363,7 @@ def main():
         snp_df = pd.DataFrame(snp_coordinates)
         if snp_df.empty:
             snp_df = pd.DataFrame(columns=[
-                "Accession", "Target_Pos", "Ref_Base", "Alt_Base", "Mutation",
+                "Accession", "Target_Contig", "Target_Pos", "Ref_Base", "Alt_Base", "Mutation",
                 "Mut_Class", "Gene", "Product", "Consequence", "AA_Change"
             ])
         snp_df.to_csv("results/summary/snp_coordinates.csv", index=False)
@@ -349,12 +376,12 @@ def main():
         ]:
             final_df[col] = 0
         pd.DataFrame(columns=[
-            "Accession", "Target_Start", "Target_End", "Query_Start", "Query_End",
+            "Accession", "Target_Contig", "Target_Start", "Target_End", "Query_Start", "Query_End",
             "Strand", "SNPs", "Transitions", "Transversions", "Ti_Tv_Ratio",
             "Missense_SNPs", "Synonymous_SNPs", "Noncoding_SNPs", "Insertions", "Deletions"
         ]).to_csv("results/summary/split_alignments.csv", index=False)
         snp_df = pd.DataFrame(columns=[
-            "Accession", "Target_Pos", "Ref_Base", "Alt_Base", "Mutation",
+            "Accession", "Target_Contig", "Target_Pos", "Ref_Base", "Alt_Base", "Mutation",
             "Mut_Class", "Gene", "Product", "Consequence", "AA_Change"
         ])
         snp_df.to_csv("results/summary/snp_coordinates.csv", index=False)
@@ -371,7 +398,7 @@ def main():
     final_df.to_csv("results/summary/sample_report.csv", index=False)
     
     mapped_samples = final_df["Accession"].tolist()
-    write_multisample_vcf("results/summary/variants.vcf", ref_id, ref_len, snp_df, mapped_samples)
+    write_multisample_vcf("results/summary/variants.vcf", contig_lengths, snp_df, mapped_samples)
 
 if __name__ == "__main__":
     main()

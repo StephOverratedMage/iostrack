@@ -1,13 +1,16 @@
-alignment_preset: asm20
-data_source: ENA
-ena_query: tax_tree(11250)
-ena_taxon: '11250'
+accession_list: MT291826 OP090659
+alignment_preset: asm5
+bvbrc_query: eq(taxon_id,2697049)
+data_source: BV-BRC
+ena_query: tax_tree(2697049)
+ena_taxon: '2697049'
 genome_type: Complete genome
-max_ambiguous_n_percent: 1.0
-max_sequences: 50
-min_length: 14000
+max_ambiguous_n_percent: 5.0
+max_sequences: 15
+min_length: 1000
 ncbi_email: your_email@example.com
-organism: Respiratory Syncytial Virus
-reference_accession: NC_001781.1
+organism: Severe acute respiratory syndrome coronavirus 2
+reference_accession: NC_045512
 search_mode: By Organism & Keyword
-search_term: '"Respiratory Syncytial Virus"[Organism] AND "complete genome"[Title]'
+search_term: '"Severe acute respiratory syndrome coronavirus 2"[Organism] AND "Complete
+  genome"[Title]'

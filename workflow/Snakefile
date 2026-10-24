@@ -15,7 +15,9 @@ rule fetch_sequences:
         "results/raw/isolates.fasta",
         "results/raw/metadata.csv"
     script:
-        "scripts/fetch_ena.py" if config.get("data_source") == "ENA" else "scripts/fetch_ncbi.py"
+        "scripts/fetch_ena.py" if config.get("data_source") == "ENA" else (
+            "scripts/fetch_bvbrc.py" if config.get("data_source") == "BV-BRC" else "scripts/fetch_ncbi.py"
+        )
 
 rule qc_filter:
     input:
@@ -35,7 +37,7 @@ rule align_genomes:
     conda:
         "envs/align.yaml"
     shell:
-        "minimap2 -x {config[alignment_preset]} --secondary=no --cs {input.ref} {input.isolates} > {output}"
+        "minimap2 -x {config[alignment_preset]} -m 40 --secondary=no --cs {input.ref} {input.isolates} > {output}"
 
 rule summarize_variants:
     input:
