@@ -53,6 +53,13 @@ Iostrack is open source and free to use. It includes custom Dark and Light theme
 * Produces a heatmap of mutations across the reference genome, with the option to overlay coding region limits over the heatmap.
 * Visualizes the pairwise SNP distance between all analyzed genomes.
 * Generates VCF, CSV and alignment reports.
+### New features
+version 0.1.5
+* Added support for BV-BRC queries. BV-BRC summary table links lead to the equivalent NCBI entries.
+* Added a large list of virus names for drop-down box recommendations.
+* Added a button to auto-suggest a reference entry based on organism name.
+* Added single-nucleotide resolution mutation summaries.
+* Added a button to flush previous results from the previous run. It should be pressed before running the next one.
 
 ## 🖼️ GUI Environment
 
@@ -159,7 +166,7 @@ rm -rf results/summary/* results/align/* results/raw/* results/qc/*
 
 **Note: Iostrack is a prototype and work in progress. Results should be independently reviewed before being used in publications, clinical workflows, or public-health decisions.
 Features coming soon include: More customizability within plots, as well as more diverse and useful visualizations. More ways to query, filter, analyze and sort results. 
-Any feedback is appreciated!** 
+Any feedback is appreciated!**
 
 ## 📝 License
 This project is licensed under the MIT License. See [LICENSE](LICENSE).
