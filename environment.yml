@@ -1,4 +1,4 @@
-name: patho-gui
+name: iostrack
 channels:
   - conda-forge
   - bioconda
