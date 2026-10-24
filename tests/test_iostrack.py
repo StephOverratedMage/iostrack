@@ -74,6 +74,7 @@ def test_annotate_snp_consequence_coding_and_stop():
     cds_models = [
         {
             "gene": "F",
+            "contig_id": "test_seg",
             "product": "fusion protein",
             "strand": 1,
             "cds_positions": list(range(9)),
@@ -83,17 +84,17 @@ def test_annotate_snp_consequence_coding_and_stop():
     ]
 
     # 1. Pos 5: AAA (Lys) -> AAG (Lys) => Synonymous
-    res_syn = annotate_snp_consequence(5, "A", "G", cds_models)
+    res_syn = annotate_snp_consequence("test_seg", 5, "A", "G", cds_models)
     assert res_syn["Consequence"] == "Synonymous"
     assert res_syn["AA_Change"] == "F:p.K2="
 
     # 2. Pos 3: AAA (Lys) -> GAA (Glu) => Missense
-    res_mis = annotate_snp_consequence(3, "A", "G", cds_models)
+    res_mis = annotate_snp_consequence("test_seg", 3, "A", "G", cds_models)
     assert res_mis["Consequence"] == "Missense"
     assert res_mis["AA_Change"] == "F:p.K2E"
 
     # 3. Pos 3: AAA (Lys) -> TAA (Stop) => Nonsense (Stop)
-    res_stop = annotate_snp_consequence(3, "A", "T", cds_models)
+    res_stop = annotate_snp_consequence("test_seg", 3, "A", "T", cds_models)
     assert res_stop["Consequence"] == "Nonsense (Stop)"
     assert res_stop["AA_Change"] == "F:p.K2*"
 
@@ -114,7 +115,7 @@ def test_write_multisample_vcf(tmp_path):
             }
         ]
     )
-    write_multisample_vcf(str(vcf_out), "NC_001781", 15225, snp_df, ["ISO1", "ISO2"])
+    write_multisample_vcf(str(vcf_out), {"NC_001781": 15225}, snp_df, ["ISO1", "ISO2"])
 
     lines = vcf_out.read_text().strip().splitlines()
     data_lines = [l for l in lines if not l.startswith("#")]
