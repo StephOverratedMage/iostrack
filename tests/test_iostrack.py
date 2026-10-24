@@ -106,11 +106,13 @@ def test_write_multisample_vcf(tmp_path):
         [
             {
                 "Accession": "ISO1",
+                "Target_Contig": "NC_001781",
                 "Target_Pos": 99,  # 0-based -> should become 100 in VCF
                 "Ref_Base": "A",
                 "Alt_Base": "G",
                 "Gene": "G",
                 "Consequence": "Missense",
+                "Codon_Change": "ACA>GCA (pos 1/3)",
                 "AA_Change": "G:p.T34A",
             }
         ]
