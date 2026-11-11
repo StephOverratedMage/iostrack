@@ -5,6 +5,7 @@ rule all:
         "results/summary/sample_report.csv",
         "results/summary/split_alignments.csv",
         "results/summary/snp_coordinates.csv",
+        "results/summary/indel_coordinates.csv",
         "results/summary/gene_features.csv",
         "results/summary/variants.vcf"
 
@@ -15,8 +16,10 @@ rule fetch_sequences:
         "results/raw/isolates.fasta",
         "results/raw/metadata.csv"
     script:
-        "scripts/fetch_ena.py" if config.get("data_source") == "ENA" else (
-            "scripts/fetch_bvbrc.py" if config.get("data_source") == "BV-BRC" else "scripts/fetch_ncbi.py"
+        "scripts/fetch_ncbi.py" if config.get("search_mode") == "Local FASTA Only" else (
+            "scripts/fetch_ena.py" if config.get("data_source") == "ENA" else (
+                "scripts/fetch_bvbrc.py" if config.get("data_source") == "BV-BRC" else "scripts/fetch_ncbi.py"
+            )
         )
 
 rule qc_filter:
@@ -50,6 +53,7 @@ rule summarize_variants:
         report="results/summary/sample_report.csv",
         splits="results/summary/split_alignments.csv",
         coords="results/summary/snp_coordinates.csv",
+        indels="results/summary/indel_coordinates.csv",
         genes="results/summary/gene_features.csv",
         vcf="results/summary/variants.vcf"
     script:

@@ -3,7 +3,7 @@ import re
 import sys
 import pandas as pd
 
-# Allow importing directly from scripts/
+# Allow importing directly from workflow/scripts/
 sys.path.insert(
     0,
     os.path.abspath(
@@ -15,7 +15,10 @@ from fetch_ena import clean_accession
 from parse_mutations import (
     classify_substitution,
     annotate_snp_consequence,
+    annotate_indel_consequence,
     write_multisample_vcf,
+    build_nj_tree,
+    tree_to_newick,
 )
 
 
@@ -40,12 +43,6 @@ def test_cs_tag_coordinate_state_machine():
     Ensures deletions (-acg) advance reference coordinates by len(del),
     while insertions (+tttt) do NOT advance reference coordinates.
     """
-    # Start at 0-based pos 100:
-    # :10 -> pos 110
-    # *ag -> SNP at 110, pos becomes 111
-    # +tttt -> insertion in query, ref pos MUST stay 111
-    # -acg -> 3bp deletion in query, ref pos advances by 3 -> 114
-    # *ct -> SNP at 114, pos becomes 115
     cs_tag = ":10*ag+tttt-acg*ct"
     current_pos = 100
     called_snps = []
@@ -69,7 +66,6 @@ def test_cs_tag_coordinate_state_machine():
 
 def test_annotate_snp_consequence_coding_and_stop():
     """Tests codon translation for Synonymous, Missense, and Nonsense SNPs."""
-    # Toy reference: ATG (Met, aa 1) + AAA (Lys, aa 2) + TAA (Stop, aa 3)
     ref_seq = "ATGAAATAA"
     cds_models = [
         {
@@ -97,6 +93,36 @@ def test_annotate_snp_consequence_coding_and_stop():
     res_stop = annotate_snp_consequence("test_seg", 3, "A", "T", cds_models)
     assert res_stop["Consequence"] == "Nonsense (Stop)"
     assert res_stop["AA_Change"] == "F:p.K2*"
+
+
+def test_annotate_indel_consequence_frameshift_vs_inframe():
+    """Verifies that 3-bp indels in CDS are classified as In-Frame and non-3-bp as Frameshift."""
+    ref_seq = "ATGAAATAA"
+    cds_models = [
+        {
+            "contig_id": "test_seg",
+            "gene": "F",
+            "product": "fusion protein",
+            "strand": 1,
+            "cds_positions": list(range(9)),
+            "pos_to_idx": {i: i for i in range(9)},
+            "ref_seq": ref_seq,
+        }
+    ]
+
+    res_fs = annotate_indel_consequence("test_seg", 3, "Deletion", "AA", cds_models)
+    assert res_fs["Gene"] == "F"
+    assert res_fs["Consequence"] == "Frameshift_Deletion"
+    assert res_fs["Indel_Length"] == 2
+
+    res_if = annotate_indel_consequence("test_seg", 3, "Insertion", "GGT", cds_models)
+    assert res_if["Gene"] == "F"
+    assert res_if["Consequence"] == "In-Frame_Insertion"
+    assert res_if["Indel_Length"] == 3
+
+    res_nc = annotate_indel_consequence("test_seg", 50, "Insertion", "A", cds_models)
+    assert res_nc["Gene"] == "Noncoding"
+    assert res_nc["Consequence"] == "Noncoding_Insertion"
 
 
 def test_write_multisample_vcf(tmp_path):
@@ -130,3 +156,23 @@ def test_write_multisample_vcf(tmp_path):
     assert fields[4] == "G"
     assert "NS=1;AF=0.5;GENE=G;CONSEQ=Missense;AA=G:p.T34A" in fields[7]
     assert fields[9:] == ["1", "0"]
+
+
+def test_neighbor_joining_tree_construction():
+    """Verifies Saitou-Nei Neighbor-Joining groups sister taxa and exports valid Newick."""
+    dist_df = pd.DataFrame(
+        [
+            [0, 2, 7, 8],
+            [2, 0, 7, 8],
+            [7, 7, 0, 3],
+            [8, 8, 3, 0],
+        ],
+        index=["REF", "ISO_A", "ISO_B", "ISO_C"],
+        columns=["REF", "ISO_A", "ISO_B", "ISO_C"],
+    )
+    tree = build_nj_tree(dist_df, root_label="REF")
+    nwk = tree_to_newick(tree)
+
+    assert nwk.endswith(";")
+    assert "REF:0.0000" in nwk
+    assert "ISO_A" in nwk and "ISO_B" in nwk and "ISO_C" in nwk

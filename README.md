@@ -61,6 +61,12 @@ version 0.1.5
 * Added single-nucleotide resolution mutation summaries.
 * Added a button to flush previous results from the previous run. It should be pressed before running the next one.
 
+version 0.2.0
+* Added support for uploading custom local FASTA files, either standalone ("Local FASTA Only" mode) or alongside database queries.
+* Added coding and noncoding indel classification (Frameshift vs. In-Frame insertions and deletions) and a dedicated Indel Explorer in Tab 2.
+* Added an interactive Neighbor-Joining (NJ) phylogenetic tree in Tab 3 with customizable tip coloring (by SNP burden, specific mutation, or sample origin) and Newick (.nwk) export.
+* Updated the Flush button to automatically clear temporary local FASTA uploads and reset the sidebar uploader.
+
 ## 🖼️ GUI Environment
 
 Configure search and filtering through the sidebar:
@@ -159,7 +165,7 @@ Iostrack organizes its outputs hierarchically inside the `results/` directory. B
 ```bash
 rm -rf results/summary/* results/align/* results/raw/* results/qc/*
 ```
-> **Warning:** This will permanently delete generated pipeline outputs. Do not run if you need to preserve previous results. Instead, save them to another folder before cleaning up.
+> **Warning:** This will permanently delete generated pipeline outputs and local FASTA uploads. Do not run if you need to preserve previous results. Instead, save them to another folder before cleaning up.
 
 ---
 ## 🔜 Roadmap

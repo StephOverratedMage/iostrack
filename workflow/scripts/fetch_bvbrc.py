@@ -10,12 +10,50 @@ from Bio import Entrez, SeqIO
 from Bio.SeqRecord import SeqRecord
 from Bio.Seq import Seq
 
+
 def clean_accession(raw_id):
     cleaned = str(raw_id).strip().strip("|")
     if "|" in cleaned:
         cleaned = cleaned.split("|")[-1]
     match = re.search(r"([A-Z]{1,6}_?[0-9]{4,})", cleaned)
     return match.group(1) if match else cleaned.split(".")[0]
+
+
+def load_local_fasta_isolates(config, seen_accessions, min_len, max_n_percent):
+    """Loads user-uploaded local FASTA sequences and applies QC filters."""
+    local_path = config.get("local_fasta_path", "")
+    local_records = []
+    local_meta = []
+
+    if not local_path or not os.path.exists(local_path):
+        return local_records, local_meta
+
+    print(f"📂 Reading uploaded local FASTA file: {local_path}")
+    for rec in SeqIO.parse(local_path, "fasta"):
+        raw_header = rec.description or rec.id
+        sanitized = re.sub(r"[^A-Za-z0-9_.-]", "_", str(rec.id).strip())
+        clean_id = clean_accession(sanitized)
+        seq_str = str(rec.seq).upper()
+        if not seq_str:
+            continue
+
+        n_percent = (seq_str.count("N") / len(seq_str)) * 100.0
+        if clean_id not in seen_accessions and len(seq_str) >= min_len and n_percent <= max_n_percent:
+            seen_accessions.add(clean_id)
+            rec.id = clean_id
+            rec.name = clean_id
+            rec.description = ""
+            local_records.append(rec)
+            local_meta.append({
+                "Accession": clean_id,
+                "Title": f"[Local FASTA] {raw_header}",
+                "Length_bp": len(seq_str),
+                "UpdateDate": "Local",
+            })
+
+    print(f"✅ Accepted {len(local_records)} local FASTA sequence(s) after QC.")
+    return local_records, local_meta
+
 
 def get_nucleotide_ids_for_assembly(assembly_acc):
     search_handle = Entrez.esearch(db="assembly", term=f"{assembly_acc}[Assembly Accession]")
@@ -50,6 +88,7 @@ def get_nucleotide_ids_for_assembly(assembly_acc):
     except (IndexError, KeyError):
         pass
     return None
+
 
 def main():
     with open("config/config.yaml", "r") as f:
@@ -107,6 +146,12 @@ def main():
     max_n_percent = float(config.get("max_ambiguous_n_percent", 1.0))
     search_mode = config.get("search_mode", "By Organism & Keyword")
 
+    seen_accessions = set(original_ref_accs + [base_ref])
+    valid_records, meta_data = load_local_fasta_isolates(
+        config, seen_accessions, min_len, max_n_percent
+    )
+    total_goal = target_quota + len(valid_records)
+
     if search_mode == "By Accession List":
         full_query = f"{bvbrc_query}&select(accession,description,sequence,length)"
     else:
@@ -117,7 +162,7 @@ def main():
     url = "https://www.bv-brc.org/api/genome_sequence/"
     headers = {
         "Accept": "application/json",
-        "Content-Type": "application/x-www-form-urlencoded"
+        "Content-Type": "application/x-www-form-urlencoded",
     }
 
     response = requests.post(url, data=full_query, headers=headers, timeout=60)
@@ -126,49 +171,43 @@ def main():
         sys.exit(1)
 
     records_data = response.json()
-    if not records_data:
+    if not records_data and not valid_records:
         print("❌ BV-BRC returned HTTP 200 but NO sequences were found.", file=sys.stderr)
         sys.exit(1)
-        
+
     random.shuffle(records_data)
     print(f"🧬 Actively hunting for {target_quota} pristine sequences from {len(records_data)} BV-BRC candidates...")
-
-    valid_records = []
-    meta_data = []
-    seen_accessions = set(original_ref_accs + [base_ref])
 
     for item in records_data:
         raw_acc = item.get("accession", "")
         clean_id = clean_accession(raw_acc)
         seq_str = str(item.get("sequence", "")).upper()
-        
+
         if not seq_str:
             continue
-            
+
         n_count = seq_str.count("N")
         n_percent = (n_count / len(seq_str)) * 100
 
         if clean_id not in seen_accessions and len(seq_str) >= min_len and n_percent <= max_n_percent:
             seen_accessions.add(clean_id)
-            
-            # Create SeqRecord
+
             rec = SeqRecord(
                 Seq(seq_str),
                 id=clean_id,
                 name=clean_id,
-                description=""
+                description="",
             )
             valid_records.append(rec)
-            
-            # Store metadata
+
             meta_data.append({
                 "Accession": clean_id,
                 "Title": item.get("description", raw_acc),
                 "Length_bp": int(item.get("length", len(seq_str))),
-                "UpdateDate": ""  # BV-BRC sequence API omits upload dates
+                "UpdateDate": "",
             })
-            
-        if len(valid_records) >= target_quota:
+
+        if len(valid_records) >= total_goal:
             break
 
     if not valid_records:
@@ -177,7 +216,8 @@ def main():
 
     SeqIO.write(valid_records, "results/raw/isolates.fasta", "fasta")
     pd.DataFrame(meta_data).to_csv("results/raw/metadata.csv", index=False)
-    print(f"✅ Success! Saved {len(valid_records)} pristine BV-BRC sequences and metadata.")
+    print(f"✅ Success! Saved {len(valid_records)} pristine sequence(s) and metadata.")
+
 
 if __name__ == "__main__":
     main()

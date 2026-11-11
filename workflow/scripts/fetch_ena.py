@@ -7,6 +7,7 @@ import requests
 import pandas as pd
 from Bio import Entrez, SeqIO
 
+
 def clean_accession(raw_id):
     """Extracts clean base accession from NCBI or ENA."""
     cleaned = str(raw_id).strip().strip("|")
@@ -14,6 +15,43 @@ def clean_accession(raw_id):
         cleaned = cleaned.split("|")[-1]
     match = re.search(r"([A-Z]{1,6}_?[0-9]{4,})", cleaned)
     return match.group(1) if match else cleaned.split(".")[0]
+
+
+def load_local_fasta_isolates(config, seen_accessions, min_len, max_n_percent):
+    """Loads user-uploaded local FASTA sequences and applies QC filters."""
+    local_path = config.get("local_fasta_path", "")
+    local_records = []
+    local_meta = []
+
+    if not local_path or not os.path.exists(local_path):
+        return local_records, local_meta
+
+    print(f"📂 Reading uploaded local FASTA file: {local_path}")
+    for rec in SeqIO.parse(local_path, "fasta"):
+        raw_header = rec.description or rec.id
+        sanitized = re.sub(r"[^A-Za-z0-9_.-]", "_", str(rec.id).strip())
+        clean_id = clean_accession(sanitized)
+        seq_str = str(rec.seq).upper()
+        if not seq_str:
+            continue
+
+        n_percent = (seq_str.count("N") / len(seq_str)) * 100.0
+        if clean_id not in seen_accessions and len(seq_str) >= min_len and n_percent <= max_n_percent:
+            seen_accessions.add(clean_id)
+            rec.id = clean_id
+            rec.name = clean_id
+            rec.description = ""
+            local_records.append(rec)
+            local_meta.append({
+                "Accession": clean_id,
+                "Title": f"[Local FASTA] {raw_header}",
+                "Length_bp": len(seq_str),
+                "UpdateDate": "Local",
+            })
+
+    print(f"✅ Accepted {len(local_records)} local FASTA sequence(s) after QC.")
+    return local_records, local_meta
+
 
 def get_nucleotide_ids_for_assembly(assembly_acc):
     """Finds linked nucleotide UIDs for a GCA/GCF assembly without duplicating RefSeq+GenBank or grabbing WGS masters."""
@@ -49,6 +87,7 @@ def get_nucleotide_ids_for_assembly(assembly_acc):
     except (IndexError, KeyError):
         pass
     return None
+
 
 def main():
     with open("config/config.yaml", "r") as f:
@@ -105,6 +144,11 @@ def main():
     max_len = max(50000, int(max_ref_len * 1.5))
     max_n_percent = float(config.get("max_ambiguous_n_percent", 1.0))
 
+    seen_accessions = set(original_ref_accs + [base_ref])
+    local_records, local_meta = load_local_fasta_isolates(
+        config, seen_accessions, min_len, max_n_percent
+    )
+
     if search_mode == "By Accession List":
         raw_accs = [x.strip() for x in re.split(r"[,\s]+", str(config.get("accession_list", ""))) if x.strip()]
         target_quota = max(target_quota, len(raw_accs))
@@ -128,72 +172,78 @@ def main():
         sys.exit(1)
 
     meta_text = meta_response.text.strip()
-    if not meta_text:
+    if not meta_text and not local_records:
         print(f"❌ ENA returned HTTP 200 but NO sequences were found for query: {full_query}", file=sys.stderr)
         sys.exit(1)
 
-    meta_df = pd.read_csv(io.StringIO(meta_text), sep="\t")
-    if "accession" not in meta_df.columns or meta_df.empty:
-        print("❌ ENA Metadata failed.", file=sys.stderr)
-        sys.exit(1)
-
-    meta_df["accession"] = meta_df["accession"].astype(str).apply(clean_accession)
-    exclude_list = original_ref_accs + [base_ref]
-    meta_df = meta_df[~meta_df["accession"].isin(exclude_list)].drop_duplicates(subset=["accession"])
-
-    meta_df = meta_df.sample(frac=1.0).reset_index(drop=True)
-    candidate_ids = meta_df["accession"].tolist()
-
-    print(f"🧬 Actively hunting for {target_quota} pristine sequences...")
-
-    valid_records = []
+    valid_records = list(local_records)
     valid_ids = set()
-    chunk_size = 30
+    total_goal = target_quota + len(local_records)
 
-    for i in range(0, len(candidate_ids), chunk_size):
-        chunk = candidate_ids[i : i + chunk_size]
-        browser_url = f"https://www.ebi.ac.uk/ena/browser/api/fasta/{','.join(chunk)}"
-        fasta_response = requests.get(browser_url, timeout=30)
+    if meta_text:
+        meta_df = pd.read_csv(io.StringIO(meta_text), sep="\t")
+        if "accession" in meta_df.columns and not meta_df.empty:
+            meta_df["accession"] = meta_df["accession"].astype(str).apply(clean_accession)
+            meta_df = meta_df[~meta_df["accession"].isin(seen_accessions)].drop_duplicates(subset=["accession"])
+            meta_df = meta_df.sample(frac=1.0).reset_index(drop=True)
+            candidate_ids = meta_df["accession"].tolist()
 
-        if fasta_response.status_code != 200:
-            continue
+            print(f"🧬 Actively hunting for {target_quota} pristine ENA sequences...")
+            chunk_size = 30
 
-        records = list(SeqIO.parse(io.StringIO(fasta_response.text), "fasta"))
-        for record in records:
-            clean_id = clean_accession(record.id)
-            seq_str = str(record.seq).upper()
+            for i in range(0, len(candidate_ids), chunk_size):
+                chunk = candidate_ids[i : i + chunk_size]
+                browser_url = f"https://www.ebi.ac.uk/ena/browser/api/fasta/{','.join(chunk)}"
+                fasta_response = requests.get(browser_url, timeout=30)
 
-            if len(seq_str) == 0:
-                continue
+                if fasta_response.status_code != 200:
+                    continue
 
-            n_count = seq_str.count("N")
-            n_percent = (n_count / len(seq_str)) * 100
+                records = list(SeqIO.parse(io.StringIO(fasta_response.text), "fasta"))
+                for record in records:
+                    clean_id = clean_accession(record.id)
+                    seq_str = str(record.seq).upper()
 
-            if clean_id not in valid_ids and len(seq_str) >= min_len and n_percent <= max_n_percent:
-                valid_ids.add(clean_id)
-                record.id = clean_id
-                record.name = clean_id
-                record.description = ""
-                valid_records.append(record)
+                    if len(seq_str) == 0:
+                        continue
 
-            if len(valid_records) >= target_quota:
-                break
-        if len(valid_records) >= target_quota:
-            break
+                    n_count = seq_str.count("N")
+                    n_percent = (n_count / len(seq_str)) * 100
+
+                    if clean_id not in seen_accessions and len(seq_str) >= min_len and n_percent <= max_n_percent:
+                        seen_accessions.add(clean_id)
+                        valid_ids.add(clean_id)
+                        record.id = clean_id
+                        record.name = clean_id
+                        record.description = ""
+                        valid_records.append(record)
+
+                    if len(valid_records) >= total_goal:
+                        break
+                if len(valid_records) >= total_goal:
+                    break
+
+            final_meta_df = meta_df[meta_df["accession"].isin(valid_ids)].copy()
+            final_meta_df = final_meta_df.rename(
+                columns={"accession": "Accession", "description": "Title", "base_count": "Length_bp", "last_updated": "UpdateDate"}
+            )
+        else:
+            final_meta_df = pd.DataFrame(columns=["Accession", "Title", "Length_bp", "UpdateDate"])
+    else:
+        final_meta_df = pd.DataFrame(columns=["Accession", "Title", "Length_bp", "UpdateDate"])
 
     if not valid_records:
-        print("❌ No ENA sequences passed the QC filters.", file=sys.stderr)
+        print("❌ No ENA or local sequences passed the QC filters.", file=sys.stderr)
         sys.exit(1)
 
     SeqIO.write(valid_records, "results/raw/isolates.fasta", "fasta")
 
-    final_meta_df = meta_df[meta_df["accession"].isin(valid_ids)].copy()
-    final_meta_df = final_meta_df.rename(
-        columns={"accession": "Accession", "description": "Title", "base_count": "Length_bp", "last_updated": "UpdateDate"}
-    )
+    if local_meta:
+        final_meta_df = pd.concat([pd.DataFrame(local_meta), final_meta_df], ignore_index=True)
 
     final_meta_df.to_csv("results/raw/metadata.csv", index=False)
-    print(f"✅ Success! Saved {len(valid_records)} pristine ENA sequences and metadata.")
+    print(f"✅ Success! Saved {len(valid_records)} pristine sequence(s) and metadata.")
+
 
 if __name__ == "__main__":
     main()

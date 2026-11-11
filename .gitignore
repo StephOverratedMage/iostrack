@@ -20,3 +20,9 @@ __pycache__/
 .idea/
 *.swp
 Miniforge3-Linux-x86_64.sh
+
+#Testing files
+#An example fasta file for testing
+test_local_swabs.fasta
+#What the example fasta file looks like after processing
+config/local_upload.fasta
