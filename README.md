@@ -44,7 +44,22 @@ Iostrack is open source and free to use. It includes custom Dark and Light theme
 
 ---
 ## 🛠️ Features
+**New**:
+## Surveillance Modes
 
+| Feature | 🧬 Deep Genomic Mode | 🌍 Macro-Epidemiological Mode |
+| :--- | :--- | :--- |
+| **Target Scale** | 1–50 isolates (+ local FASTA uploads) | 100–5,000 isolates |
+| **Databases** | NCBI, ENA, BV-BRC, Local FASTA | NCBI, ENA, BV-BRC |
+| **Pipeline Engine** | Snakemake + `minimap2` + variant calling | Lightweight metadata-only API fetcher |
+| **Core Outputs** | SNP/Indel tables, Ti/Tv & dN/dS, Hotspot maps, Neighbor-Joining tree, VCF, Newick | Global Choropleth map, 3-scale Epidemic Timeline, Country breakdown, CSV & Deep-mode accession export |
+| **Isolated Storage** | `results/raw`, `qc`, `align`, `summary` | `results/macro/macro_metadata.csv` |
+
+> **Note on Public Repository Counts:** In Macro Mode, isolate counts reflect genomic sequencing capacity and laboratory batch-upload schedules in addition to underlying clinical incidence. Records lacking verifiable sample-origin metadata (including engineered lab clones) are intentionally preserved as `Unknown` rather than inferred from submitting institution addresses.
+
+## Running Tests
+```bash
+pytest -v
 * Allows for querying the NCBI or ENA databases to fetch DNA sequences based on search terms (Organism, title terms) or accession numbers.
 * Aligns all results to a reference genome specified by the user.
 * Filters sequences by minimum length and maximum ambiguous-base percentage, provides configurable Minimap2 alignment presets for different expected divergence levels and limits the maximum number of sequences downloaded, displayed, and analyzed.
@@ -66,6 +81,23 @@ version 0.2.0
 * Added coding and noncoding indel classification (Frameshift vs. In-Frame insertions and deletions) and a dedicated Indel Explorer in Tab 2.
 * Added an interactive Neighbor-Joining (NJ) phylogenetic tree in Tab 3 with customizable tip coloring (by SNP burden, specific mutation, or sample origin) and Newick (.nwk) export.
 * Updated the Flush button to automatically clear temporary local FASTA uploads and reset the sidebar uploader.
+
+version 0.3.0
+* **🌍 Macro-Epidemiological Surveillance Mode (Metadata-Only):** Added a dedicated sidebar mode switch separating **Deep Genomic Analysis** ($N = 1\text{--}50$, full alignment & variant calling) from **Macro-Epidemiological Surveillance** ($N = 100\text{--}5{,}000$, metadata-only). By bypassing FASTA downloads and Snakemake alignment, Macro Mode fetches spatiotemporal metadata for thousands of isolates across **NCBI**, **ENA**, and **BV-BRC** in seconds.
+* **🗺️ Global Choropleth Mapping & Spatiotemporal Analytics:** Added an interactive ISO-3 Plotly world Choropleth map with a **Log10 / Linear** color scale toggle, paired with KPI coverage metrics, interactive **Country & Date Range** cohort filters, a 3-scale **Epidemic Timeline** (*Continuous Daily*, *Active Days Only*, *Monthly Bins*), and a **Geographic Distribution** donut chart (*Top 12 + Other* or *Show All*).
+* **🧬 Macro-to-Deep Drill-Down Bridge:** Added an intelligent **Row-Range Selector** (supporting syntax like `0-5, 10, 156-255` or `all`) locked to the filtered metadata table index. Users can isolate a specific geographic or temporal cluster in Macro Mode and copy a deduplicated accession list straight into **Deep Genomic Mode → By Accession List** for alignment, variant calling, and Neighbor-Joining phylogenetics.
+* **⏳ Live Progress Monitoring:** Replaced blocking waits in Macro Mode with a streaming `subprocess.Popen` architecture driving a live `st.status` + `st.progress` bar with stage-by-stage completion percentages, elapsed-time tracking, and persistent fetch logs.
+* **🧹 Scoped Flush & Auto-Flush Controls:** Isolated Macro outputs (`results/macro/`) from Deep Genomic outputs (`results/raw`, `qc`, `align`, `summary`) so flushing one mode never deletes the other. Added a manual **Flush Macro Results** button and an optional **Auto-flush previous results on Run** toggle (with an explicit data-loss warning banner) in both modes.
+* **🔎 Automated Metadata Enrichment Pipelines:**
+  * **ENA BioSample Enrichment:** Automatically performs batched `result=sample` lookups via linked `sample_accession` IDs to recover authentic sample-origin country and collection dates omitted on sequence records.
+  * **Batched NCBI `esummary` Fallback:** Automatically enriches BV-BRC and ENA records missing country/date tags when a valid INSDC accession is present (resolving post-2024 `/geo_loc_name` ingestion gaps).
+
+### Bug Fixes & Reliability
+* **ENA Portal Stability & Determinism:** Removed unsupported `offset` parameters that caused HTTP 400 stalls during stratified ENA sampling (replacing them with deterministic 3-day/monthly `first_public` windows), and expanded binary-search convergence in **Longest Sequences First** so ENA returns the complete upper-length tail deterministically instead of oscillating across backend replicas.
+* **BV-BRC Query & ID Integrity:** URL-encoded timestamp colons (`%3A`) in RQL `date_inserted` filters to fix HTTP 400 parse errors in **Oldest First** searches, added `geographic_location` parsing alongside `isolation_country`, and updated `parse_mutations.py` to preserve numeric BV-BRC genome/contig IDs (`2697049.xxxxxx`) instead of truncating and collapsing isolates at the first dot.
+* **Strict Geographic & Date Sanitization:** Replaced the greedy title-splitting regex fallback with strict country/region whitelist matching (eliminating false country labels such as lab/prefecture abbreviations like `Kng` while accurately resolving Diamond Princess `/DP/Kng/` isolates to Japan), and filtered Unix epoch-0 (`1969-12-31` / `1970-01-01`) sentinel timestamps.
+* **Resilient Reference Fetching:** Added automatic retries, `gbwithparts` $\rightarrow$ `gb` fallback, and diagnostic error logging to NCBI reference retrieval.
+* **Automated Unit Test Suite:** Added `tests/test_macro.py` for offline `pytest` verification of accession handling, date sanitization, spatiotemporal normalization, mocked NCBI enrichment, row-range selection parsing, Choropleth rendering, and flush isolation.
 
 ## 🖼️ GUI Environment
 
