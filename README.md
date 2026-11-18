@@ -57,9 +57,6 @@ Iostrack is open source and free to use. It includes custom Dark and Light theme
 
 > **Note on Public Repository Counts:** In Macro Mode, isolate counts reflect genomic sequencing capacity and laboratory batch-upload schedules in addition to underlying clinical incidence. Records lacking verifiable sample-origin metadata (including engineered lab clones) are intentionally preserved as `Unknown` rather than inferred from submitting institution addresses.
 
-## Running Tests
-```bash
-pytest -v
 * Allows for querying the NCBI or ENA databases to fetch DNA sequences based on search terms (Organism, title terms) or accession numbers.
 * Aligns all results to a reference genome specified by the user.
 * Filters sequences by minimum length and maximum ambiguous-base percentage, provides configurable Minimap2 alignment presets for different expected divergence levels and limits the maximum number of sequences downloaded, displayed, and analyzed.
@@ -99,6 +96,11 @@ version 0.3.0
 * **Resilient Reference Fetching:** Added automatic retries, `gbwithparts` $\rightarrow$ `gb` fallback, and diagnostic error logging to NCBI reference retrieval.
 * **Automated Unit Test Suite:** Added `tests/test_macro.py` for offline `pytest` verification of accession handling, date sanitization, spatiotemporal normalization, mocked NCBI enrichment, row-range selection parsing, Choropleth rendering, and flush isolation.
 
+## Running Tests
+```bash
+pytest -v
+
+
 ## 🖼️ GUI Environment
 
 Configure search and filtering through the sidebar:
@@ -110,7 +112,7 @@ The dashboard includes interactive plots that visualize SNP counts and mutation 
 <img width="930" height="793" alt="iostrack mutation summary tab" src="https://github.com/user-attachments/assets/5a99b093-3cb0-4dae-a09d-c9c7a465876b" />
 <img width="942" height="805" alt="iostrack mutation heatmap and smaller segment mutation table" src="https://github.com/user-attachments/assets/d3d82461-c8c9-44b6-80aa-ee723271f9b7" />
 <img width="966" height="822" alt="iostrack pairwise SNP distance visualization" src="https://github.com/user-attachments/assets/d3947a3a-6be2-4479-b2db-eb9be2759066" />
-
+```
 
 ## 🏗️ Pipeline Architecture
 
