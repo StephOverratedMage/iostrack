@@ -3,6 +3,15 @@ import re
 import sys
 import pandas as pd
 
+sys.path.insert(
+    0,
+    os.path.abspath(
+        os.path.join(os.path.dirname(__file__), "..", "workflow", "scripts")
+    ),
+)
+
+from parse_mutations import apply_post_alignment_selection
+
 # Allow importing directly from workflow/scripts/
 sys.path.insert(
     0,
@@ -176,3 +185,24 @@ def test_neighbor_joining_tree_construction():
     assert nwk.endswith(";")
     assert "REF:0.0000" in nwk
     assert "ISO_A" in nwk and "ISO_B" in nwk and "ISO_C" in nwk
+
+def test_post_alignment_selection_strategies():
+    """Verifies two-stage ranking keeps local uploads and ranks DB isolates deterministically."""
+    df = pd.DataFrame([
+        {"Accession": "LOC1", "Title": "[Local FASTA] sample", "Country": "Local Upload", "Aligned_bp": 5000, "Alignment_Segments": 2, "SNPs": 99},
+        {"Accession": "DB1", "Title": "db1", "Country": "USA", "Aligned_bp": 29800, "Alignment_Segments": 1, "SNPs": 40},
+        {"Accession": "DB2", "Title": "db2", "Country": "USA", "Aligned_bp": 29800, "Alignment_Segments": 2, "SNPs": 10},
+        {"Accession": "DB3", "Title": "db3", "Country": "China", "Aligned_bp": 15000, "Alignment_Segments": 1, "SNPs": 5},
+    ])
+
+    best_aln = apply_post_alignment_selection(
+        df,
+        {"search_mode": "By Organism & Keyword", "selection_strategy": "Newest + Best Alignment (Two-Stage)", "max_sequences": 2},
+    )
+    assert list(best_aln["Accession"]) == ["LOC1", "DB1", "DB2"]
+
+    fewest_snps = apply_post_alignment_selection(
+        df,
+        {"search_mode": "By Organism & Keyword", "selection_strategy": "Fewest SNPs (Two-Stage)", "max_sequences": 2},
+    )
+    assert list(fewest_snps["Accession"]) == ["LOC1", "DB3", "DB2"]

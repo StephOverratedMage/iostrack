@@ -9,6 +9,19 @@ import streamlit as st
 import yaml
 
 
+#Flush deep results button
+DEEP_RESULT_DIRS = ("results/raw", "results/qc", "results/align", "results/summary")
+
+
+def flush_deep_results():
+    """Deletes Deep Genomic pipeline outputs while leaving results/macro untouched."""
+    removed_any = False
+    for rel_dir in DEEP_RESULT_DIRS:
+        if os.path.exists(rel_dir):
+            shutil.rmtree(rel_dir)
+            removed_any = True
+    return removed_any
+
 # --- NEIGHBOR-JOINING PHYLOGENETIC TREE ENGINE ---
 def build_nj_tree(dist_df, root_label=None):
     """
@@ -205,6 +218,23 @@ if os.path.exists(".streamlit/config.toml"):
 
 # Set up the webpage layout
 st.set_page_config(page_title="Iostrack Dashboard", layout="wide")
+
+#MACRO DASHBOARD IMPLEMENTATION FOR MODE-SWITCHING
+
+from macro_dashboard import run_macro_mode
+
+app_mode = st.sidebar.radio(
+    "🧭 Surveillance Mode",
+    [
+        "🧬 Deep Genomic Analysis (Full Pipeline)",
+        "🌍 Macro-Epidemiological (Metadata-Only)",
+    ],
+    key="app_mode_radio",
+)
+if app_mode == "🌍 Macro-Epidemiological (Metadata-Only)":
+    run_macro_mode()
+    st.stop()
+
 st.title("🧬 Iostrack: Pathogen Surveillance Dashboard")
 
 # Place the theme buttons at the very top of the sidebar
@@ -434,6 +464,47 @@ if data_source == "NCBI" or search_mode == "Local FASTA Only":
 st.sidebar.markdown("---")
 new_max = st.sidebar.slider("Max Sequences to Download", 1, 50, config.get("max_sequences", 15))
 
+SELECTION_STRATEGIES = [
+    "Newest First (Deterministic)",
+    "Oldest First (Deterministic)",
+    "Longest Sequences First",
+    "Closest to Reference Length",
+    "Newest + Best Alignment (Two-Stage)",
+    "Fewest SNPs (Two-Stage)",
+    "Random Sample (Reproducible Seed)",
+]
+
+saved_strategy = config.get("selection_strategy", SELECTION_STRATEGIES[0])
+strategy_idx = SELECTION_STRATEGIES.index(saved_strategy) if saved_strategy in SELECTION_STRATEGIES else 0
+
+selection_strategy = st.sidebar.selectbox(
+    "🎯 Sequence Selection Strategy",
+    options=SELECTION_STRATEGIES,
+    index=strategy_idx,
+    help=(
+        "Controls how isolates are chosen when more sequences match than Max Sequences. "
+        "Two-Stage modes fetch a 2x deterministic candidate pool, align with minimap2, "
+        "and keep the top N isolates."
+    ),
+)
+
+if selection_strategy == "Fewest SNPs (Two-Stage)":
+    st.sidebar.caption(
+        "⚠️ *Note: Ranking by fewest SNPs biases sampling toward older, reference-like strains "
+        "and may exclude newer divergent lineages.*"
+    )
+
+random_seed = int(config.get("random_seed", 42))
+if selection_strategy == "Random Sample (Reproducible Seed)":
+    random_seed = st.sidebar.number_input(
+        "🎲 Random Seed",
+        min_value=0,
+        max_value=999999,
+        value=random_seed,
+        step=1,
+        help="Same seed + same database state produces the exact same random sample.",
+    )
+
 # --- ADVANCED PARAMETERS ---
 st.sidebar.subheader("🔬 Advanced Parameters")
 
@@ -466,6 +537,18 @@ new_align_preset = align_options[align_choice]
 # 3 --- RUN & FLUSH BUTTONS ---
 run_col, flush_col = st.sidebar.columns(2)
 
+auto_flush_deep = st.sidebar.checkbox(
+    "🗑️ Auto-flush previous results on Run",
+    value=False,
+    key="deep_auto_flush",
+    help="Automatically deletes previous Deep Genomic outputs (raw, qc, align, summary) before launching Snakemake.",
+)
+if auto_flush_deep:
+    st.sidebar.warning(
+        "⚠️ **Auto-flush enabled:** Previous Deep Genomic outputs (`results/raw`, `qc`, `align`, `summary`) "
+        "will be permanently deleted every time you click Run. Download any VCF/CSV/Newick files you need first."
+    )
+
 if run_col.button("🚀 Run Pipeline", width="stretch"):
     config["reference_accession"] = ref_acc
     config["search_mode"] = search_mode
@@ -477,6 +560,8 @@ if run_col.button("🚀 Run Pipeline", width="stretch"):
     config["min_length"] = new_min_len
     config["max_ambiguous_n_percent"] = new_max_n
     config["alignment_preset"] = new_align_preset
+    config["selection_strategy"] = selection_strategy
+    config["random_seed"] = int(random_seed)
 
     os.makedirs("config", exist_ok=True)
     local_fasta_path = "config/local_upload.fasta"
@@ -494,7 +579,10 @@ if run_col.button("🚀 Run Pipeline", width="stretch"):
         config["local_fasta_path"] = ""
 
     with open("config/config.yaml", "w") as f:
-        yaml.dump(config, f)
+        yaml.safe_dump(config, f)
+
+    if auto_flush_deep:
+        flush_deep_results()
 
     with st.spinner("Running Iostrack Engine..."):
         result = subprocess.run(
@@ -521,7 +609,7 @@ with flush_col.popover("🗑️ Flush", use_container_width=True):
     st.markdown("Are you sure you want to delete all files in `results/` and clear uploaded FASTA files?")
     if st.button("⚠️ Yes, Delete All", type="primary", width="stretch"):
         if os.path.exists("results"):
-            shutil.rmtree("results")
+            flush_deep_results() #Changed to prevent deletion of macro results
         if os.path.exists("config/local_upload.fasta"):
             os.remove("config/local_upload.fasta")
         config["local_fasta_path"] = ""
@@ -1447,6 +1535,108 @@ if os.path.exists(results_file):
                     )
             else:
                 st.info("At least 2 mapped genomes with SNP coordinates are required to compute pairwise clustering.")
+
+            st.markdown("---")
+            st.subheader("🌍 Spatiotemporal & Geographic Spread")
+
+            spatiotemporal_df = df.copy()
+            has_spatiotemporal = (
+                "Collection_Date" in spatiotemporal_df.columns
+                or "Country" in spatiotemporal_df.columns
+            )
+
+            if has_spatiotemporal:
+                geo_col1, geo_col2 = st.columns(2)
+
+                with geo_col1:
+                    st.markdown("##### 📈 Epidemic Timeline (Collection Dates)")
+                    if "Collection_Date" in spatiotemporal_df.columns:
+                        spatiotemporal_df["Clean_Date"] = pd.to_datetime(
+                            spatiotemporal_df["Collection_Date"], format="mixed", errors="coerce"
+                        )
+                        valid_dates = spatiotemporal_df.dropna(subset=["Clean_Date"]).sort_values("Clean_Date")
+                    else:
+                        valid_dates = pd.DataFrame()
+
+                    if not valid_dates.empty:
+                        time_view = st.radio(
+                            "Timeline Scale",
+                            [
+                                "Continuous Daily (Show Empty Days)",
+                                "Active Days Only (Compact)",
+                                "Monthly Bins",
+                            ],
+                            horizontal=True,
+                            key="time_scale_radio",
+                        )
+
+                        if time_view == "Monthly Bins":
+                            timeline_counts = (
+                                valid_dates.groupby(valid_dates["Clean_Date"].dt.to_period("M"))
+                                .size()
+                                .reset_index(name="Isolate_Count")
+                            )
+                            timeline_counts["Clean_Date"] = timeline_counts["Clean_Date"].astype(str)
+                            x_col, x_title, axis_type = "Clean_Date", "Collection Month", "category"
+
+                        elif time_view == "Active Days Only (Compact)":
+                            timeline_counts = (
+                                valid_dates["Clean_Date"]
+                                .dt.strftime("%Y-%m-%d")
+                                .value_counts()
+                                .reset_index(name="Isolate_Count")
+                            )
+                            timeline_counts.columns = ["Clean_Date", "Isolate_Count"]
+                            timeline_counts = timeline_counts.sort_values("Clean_Date")
+                            x_col, x_title, axis_type = "Clean_Date", "Active Collection Dates", "category"
+
+                        else:
+                            daily_series = valid_dates["Clean_Date"].dt.normalize().value_counts().sort_index()
+                            min_d, max_d = daily_series.index.min(), daily_series.index.max()
+                            if (max_d - min_d).days <= 1825:
+                                full_range = pd.date_range(min_d, max_d, freq="D")
+                                daily_series = daily_series.reindex(full_range, fill_value=0)
+                            timeline_counts = daily_series.reset_index()
+                            timeline_counts.columns = ["Clean_Date", "Isolate_Count"]
+                            x_col, x_title, axis_type = "Clean_Date", "Calendar Date (Empty Days Preserved)", "date"
+
+                        fig_time = px.bar(
+                            timeline_counts,
+                            x=x_col,
+                            y="Isolate_Count",
+                            title="Isolates Collected / Reported Over Time",
+                            labels={x_col: x_title, "Isolate_Count": "Number of Isolates"},
+                        )
+                        fig_time.update_xaxes(type=axis_type)
+                        st.plotly_chart(fig_time, width="stretch")
+                    else:
+                        st.info("No parseable collection dates available for the current cohort.")
+
+                with geo_col2:
+                    st.markdown("##### 🗺️ Geographic Distribution (Country)")
+                    if "Country" in spatiotemporal_df.columns and not spatiotemporal_df["Country"].dropna().empty:
+                        country_counts = (
+                            spatiotemporal_df["Country"]
+                            .fillna("Unknown")
+                            .astype(str)
+                            .value_counts()
+                            .reset_index(name="Count")
+                        )
+                        country_counts.columns = ["Country", "Count"]
+
+                        fig_map = px.pie(
+                            country_counts,
+                            names="Country",
+                            values="Count",
+                            title="Isolates by Country / Region",
+                            hole=0.4,
+                        )
+                        st.plotly_chart(fig_map, width="stretch")
+                    else:
+                        st.info("No geographic country tags found in current metadata.")
+            else:
+                data = config.get("data_source", "NCBI")
+                st.info(f"Spatiotemporal metadata fields require re-running the fetch step with {data}.")
     else:
         st.warning("The pipeline ran, but no sequences aligned successfully.")
 else:

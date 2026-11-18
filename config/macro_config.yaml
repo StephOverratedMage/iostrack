@@ -1,0 +1,8 @@
+data_source: NCBI
+organism_query: Severe acute respiratory syndrome coronavirus 2
+max_records: 100
+min_length: 10000
+max_length: 500000
+selection_strategy: Random Sample (Reproducible Seed)
+random_seed: 42
+ncbi_email: your_email@example.com

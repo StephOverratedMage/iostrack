@@ -1,5 +1,6 @@
 import os
 import re
+import yaml
 import pandas as pd
 from Bio import SeqIO
 from Bio.Seq import Seq
@@ -18,12 +19,15 @@ INDEL_RANK = {
 
 
 def clean_accession(raw_id):
-    """Extracts clean base accession from NCBI, ENA, BV-BRC, or local FASTA headers."""
     cleaned = str(raw_id).strip().strip("|")
     if "|" in cleaned:
         cleaned = cleaned.split("|")[-1]
     match = re.search(r"([A-Z]{1,6}_?[0-9]{4,})", cleaned)
-    return match.group(1) if match else cleaned.split(".")[0]
+    if match:
+        return match.group(1)
+    if re.match(r"^\d+\.\d+", cleaned):
+        return cleaned
+    return cleaned.split(".")[0]
 
 
 def classify_substitution(ref_base, alt_base):
@@ -31,6 +35,75 @@ def classify_substitution(ref_base, alt_base):
     if (ref_base, alt_base) in TRANSITIONS:
         return "Transition"
     return "Transversion"
+
+
+def compute_merged_aligned_bp(seg_df):
+    """Computes exact non-overlapping aligned reference base pairs across contigs for one isolate."""
+    total_bp = 0
+    for _, grp in seg_df.groupby("Target_Contig"):
+        intervals = sorted(zip(grp["Target_Start"].astype(int), grp["Target_End"].astype(int)))
+        if not intervals:
+            continue
+        cur_s, cur_e = intervals[0]
+        for s, e in intervals[1:]:
+            if s <= cur_e:
+                cur_e = max(cur_e, e)
+            else:
+                total_bp += max(0, cur_e - cur_s)
+                cur_s, cur_e = s, e
+        total_bp += max(0, cur_e - cur_s)
+    return int(total_bp)
+
+
+def apply_post_alignment_selection(final_df, config):
+    """
+    Stage 2 filtering for two-stage selection strategies.
+    Preserves all Local FASTA uploads and ranks database isolates deterministically
+    down to max_sequences.
+    """
+    search_mode = config.get("search_mode", "By Organism & Keyword")
+    strategy = config.get("selection_strategy", "Newest First (Deterministic)")
+    max_seq = int(config.get("max_sequences", 20))
+
+    if search_mode != "By Organism & Keyword" or final_df.empty:
+        return final_df
+    if strategy not in ("Newest + Best Alignment (Two-Stage)", "Fewest SNPs (Two-Stage)"):
+        return final_df
+
+    is_local = pd.Series(False, index=final_df.index)
+    if "Country" in final_df.columns:
+        is_local |= final_df["Country"].astype(str).eq("Local Upload")
+    if "Title" in final_df.columns:
+        is_local |= final_df["Title"].astype(str).str.startswith("[Local FASTA]")
+
+    local_df = final_df[is_local].copy()
+    db_df = final_df[~is_local].copy()
+
+    if len(db_df) <= max_seq:
+        return pd.concat([local_df, db_df], ignore_index=True)
+
+    n_col = next(
+        (c for c in ["N_Percent", "Percent_N", "Ambiguous_Percent", "N_Content_%"] if c in db_df.columns),
+        None,
+    )
+
+    if strategy == "Newest + Best Alignment (Two-Stage)":
+        sort_cols = ["Aligned_bp", "Alignment_Segments"]
+        asc_flags = [False, True]
+        if n_col:
+            sort_cols.append(n_col)
+            asc_flags.append(True)
+        sort_cols.append("Accession")
+        asc_flags.append(True)
+        db_df = db_df.sort_values(by=sort_cols, ascending=asc_flags).head(max_seq)
+        print(f"🎯 Stage 2 (Newest + Best Alignment): Kept top {len(db_df)} database isolate(s).")
+    elif strategy == "Fewest SNPs (Two-Stage)":
+        sort_cols = ["SNPs", "Aligned_bp", "Alignment_Segments", "Accession"]
+        asc_flags = [True, False, True, True]
+        db_df = db_df.sort_values(by=sort_cols, ascending=asc_flags).head(max_seq)
+        print(f"🎯 Stage 2 (Fewest SNPs): Kept top {len(db_df)} database isolate(s).")
+
+    return pd.concat([local_df, db_df], ignore_index=True)
 
 
 def load_genbank_cds(gb_path):
@@ -266,11 +339,8 @@ def write_multisample_vcf(vcf_path, contig_lengths, snp_df, sample_list):
 
             out.write(f"{ctg}\t{pos_1}\t.\t{ref_b}\t{alt_b}\t.\tPASS\t{info_str}\tGT\t{gt_str}\n")
 
+
 def build_nj_tree(dist_df, root_label=None):
-    """
-    Builds a rooted phylogenetic tree from a symmetric pairwise distance DataFrame
-    using the Saitou & Nei (1987) Neighbor-Joining algorithm.
-    """
     labels = list(dist_df.index)
     n = len(labels)
     if n == 0:
@@ -385,7 +455,6 @@ def build_nj_tree(dist_df, root_label=None):
 
 
 def tree_to_newick(tree_node):
-    """Serializes a rooted tree dictionary into standard Newick (.nwk) format."""
     if tree_node is None:
         return ";"
 
@@ -401,8 +470,14 @@ def tree_to_newick(tree_node):
         return f"({safe}:{tree_node['length']:.4f});"
     return "(" + ",".join(_recurse(c) for c in tree_node["children"]) + ");"
 
+
 def main():
     os.makedirs("results/summary", exist_ok=True)
+
+    config = {}
+    if os.path.exists("config/config.yaml"):
+        with open("config/config.yaml", "r") as f:
+            config = yaml.safe_load(f) or {}
 
     ref_records = list(SeqIO.parse("results/raw/reference.fasta", "fasta"))
     contig_lengths = {clean_accession(rec.id): len(rec.seq) for rec in ref_records}
@@ -420,6 +495,15 @@ def main():
     qc_df = qc_df.drop_duplicates(subset=["Accession"])
 
     merged = pd.merge(qc_df, meta_df, on="Accession", how="left")
+
+    # Normalize Spatiotemporal Fields
+    if "Collection_Date" not in merged.columns:
+        merged["Collection_Date"] = "Unknown"
+    if "Country" not in merged.columns:
+        merged["Country"] = "Unknown"
+
+    merged["Collection_Date"] = merged["Collection_Date"].fillna("Unknown").astype(str)
+    merged["Country"] = merged["Country"].fillna("Unknown").astype(str).str.strip()
 
     mutation_details = []
     with open("results/align/alignments.paf", "r") as f:
@@ -454,6 +538,16 @@ def main():
         "Accession", "Target_Contig", "Target_Pos", "Position_1Based",
         "Indel_Type", "Length_bp", "Sequence", "Gene", "Product",
         "Consequence", "Protein_Impact",
+    ]
+    snp_cols = [
+        "Accession", "Target_Contig", "Target_Pos", "Ref_Base", "Alt_Base", "Mutation",
+        "Mut_Class", "Gene", "Product", "Consequence", "Codon_Change", "AA_Change",
+    ]
+    split_cols = [
+        "Accession", "Target_Contig", "Target_Start", "Target_End", "Query_Start", "Query_End",
+        "Strand", "SNPs", "Transitions", "Transversions", "Ti_Tv_Ratio",
+        "Missense_SNPs", "Synonymous_SNPs", "Noncoding_SNPs", "Insertions", "Deletions",
+        "Frameshift_Indels", "InFrame_Indels",
     ]
 
     if not details_df.empty:
@@ -584,9 +678,7 @@ def main():
             })
 
         clean_details_df = pd.DataFrame(final_mutations)
-
         detailed_full = pd.merge(merged, clean_details_df, on="Accession", how="inner")
-        detailed_full.to_csv("results/summary/split_alignments.csv", index=False)
 
         sum_cols = [
             "SNPs", "Transitions", "Transversions",
@@ -594,6 +686,17 @@ def main():
             "Insertions", "Deletions", "Frameshift_Indels", "InFrame_Indels",
         ]
         mut_agg = clean_details_df.groupby("Accession", as_index=False)[sum_cols].sum()
+
+        # Per-isolate alignment completeness and fragmentation metrics
+        align_stats = [
+            {
+                "Accession": acc,
+                "Aligned_bp": compute_merged_aligned_bp(grp),
+                "Alignment_Segments": int(len(grp)),
+            }
+            for acc, grp in clean_details_df.groupby("Accession")
+        ]
+        mut_agg = pd.merge(mut_agg, pd.DataFrame(align_stats), on="Accession", how="left")
 
         mut_agg["Ti_Tv_Ratio"] = mut_agg.apply(
             lambda r: round(r["Transitions"] / r["Transversions"], 2) if r["Transversions"] > 0 else float(r["Transitions"]),
@@ -605,47 +708,47 @@ def main():
         )
 
         final_df = pd.merge(merged, mut_agg, on="Accession", how="inner")
-
-        snp_df = pd.DataFrame(snp_coordinates)
-        if snp_df.empty:
-            snp_df = pd.DataFrame(columns=[
-                "Accession", "Target_Contig", "Target_Pos", "Ref_Base", "Alt_Base", "Mutation",
-                "Mut_Class", "Gene", "Product", "Consequence", "Codon_Change", "AA_Change",
-            ])
-        snp_df.to_csv("results/summary/snp_coordinates.csv", index=False)
-
+        snp_df = pd.DataFrame(snp_coordinates) if snp_coordinates else pd.DataFrame(columns=snp_cols)
         indel_df = pd.DataFrame(indel_coordinates, columns=indel_cols) if indel_coordinates else pd.DataFrame(columns=indel_cols)
-        indel_df.to_csv("results/summary/indel_coordinates.csv", index=False)
     else:
         final_df = merged.iloc[0:0].copy()
         for col in [
             "SNPs", "Transitions", "Transversions", "Ti_Tv_Ratio",
             "Missense_SNPs", "Synonymous_SNPs", "Noncoding_SNPs", "Missense_Syn_Ratio",
             "Insertions", "Deletions", "Frameshift_Indels", "InFrame_Indels",
+            "Aligned_bp", "Alignment_Segments",
         ]:
             final_df[col] = 0
-        pd.DataFrame(columns=[
-            "Accession", "Target_Contig", "Target_Start", "Target_End", "Query_Start", "Query_End",
-            "Strand", "SNPs", "Transitions", "Transversions", "Ti_Tv_Ratio",
-            "Missense_SNPs", "Synonymous_SNPs", "Noncoding_SNPs", "Insertions", "Deletions",
-            "Frameshift_Indels", "InFrame_Indels",
-        ]).to_csv("results/summary/split_alignments.csv", index=False)
-        snp_df = pd.DataFrame(columns=[
-            "Accession", "Target_Contig", "Target_Pos", "Ref_Base", "Alt_Base", "Mutation",
-            "Mut_Class", "Gene", "Product", "Consequence", "Codon_Change", "AA_Change",
-        ])
-        snp_df.to_csv("results/summary/snp_coordinates.csv", index=False)
-        pd.DataFrame(columns=indel_cols).to_csv("results/summary/indel_coordinates.csv", index=False)
+        detailed_full = pd.DataFrame(columns=split_cols)
+        snp_df = pd.DataFrame(columns=snp_cols)
+        indel_df = pd.DataFrame(columns=indel_cols)
 
     final_df = final_df[final_df["Status"] == "PASS"]
     int_cols = [
         "SNPs", "Transitions", "Transversions",
         "Missense_SNPs", "Synonymous_SNPs", "Noncoding_SNPs",
         "Insertions", "Deletions", "Frameshift_Indels", "InFrame_Indels",
+        "Aligned_bp", "Alignment_Segments",
     ]
     final_df[int_cols] = final_df[int_cols].fillna(0).astype(int)
     final_df["Ti_Tv_Ratio"] = final_df["Ti_Tv_Ratio"].fillna(0.0)
     final_df["Missense_Syn_Ratio"] = final_df["Missense_Syn_Ratio"].fillna(0.0)
+
+    # Apply Stage 2 post-alignment ranking (when a Two-Stage strategy is active)
+    final_df = apply_post_alignment_selection(final_df, config)
+    selected_accs = set(final_df["Accession"].astype(str).tolist())
+
+    # Synchronize all downstream tables & VCF to the exact selected cohort
+    if not detailed_full.empty:
+        detailed_full = detailed_full[detailed_full["Accession"].astype(str).isin(selected_accs)]
+    if not snp_df.empty:
+        snp_df = snp_df[snp_df["Accession"].astype(str).isin(selected_accs)]
+    if not indel_df.empty:
+        indel_df = indel_df[indel_df["Accession"].astype(str).isin(selected_accs)]
+
+    detailed_full.to_csv("results/summary/split_alignments.csv", index=False)
+    snp_df.to_csv("results/summary/snp_coordinates.csv", index=False)
+    indel_df.to_csv("results/summary/indel_coordinates.csv", index=False)
     final_df.to_csv("results/summary/sample_report.csv", index=False)
 
     mapped_samples = final_df["Accession"].tolist()
